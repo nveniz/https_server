@@ -59,8 +59,8 @@ SSL_CTX *create_context()
      * highest version mutually supported by the client and the server.      
      * The supported protocols are SSLv3, TLSv1, TLSv1.1 and TLSv1.2. 
      */
-    //method = SSLv23_server_method();
-    method = TLSv1_2_server_method(); 
+    method = SSLv23_server_method();
+    //method = TLSv1_2_server_method(); 
 
     /* creates a new SSL_CTX object as framework to establish TLS/SSL or   
      * DTLS enabled connections. It initializes the list of ciphers, the 
