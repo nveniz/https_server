@@ -36,7 +36,7 @@ typdef struct http_response{
 }RESPONSE;
 
 /* Function to parse server's conf file */
-void parse_conf()
+void parse_conf();
 
 /* Function to handle incoming clients */   //TODO LAST
 void handle_client(QUEUE q);
