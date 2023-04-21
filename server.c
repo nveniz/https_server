@@ -35,6 +35,9 @@ typdef struct http_response{
 
 }RESPONSE;
 
+/* Function to parse server's conf file */
+void parse_conf()
+
 /* Function to handle incoming clients */   //TODO LAST
 void handle_client(QUEUE q);
 
@@ -68,7 +71,45 @@ void handle_delete(REQUEST *reqst,  RESPONSE *rspns );
 /* Function to parse the client's request*/ //DONE
 int parse_request(char *request, REQUEST *rqst);
 
+void parse_conf(){
+    FILE* fp;
+    char line[MAX_LINE_LENGTH];
+    int threads = 0;
+    int port = 0;
+    char home[MAX_LINE_LENGTH];
 
+    fp = fopen("server.conf", "r");
+    if (fp == NULL) {
+        printf("Error opening configuration file!\n");
+        exit(1);
+    }
+
+    while (fgets(line, MAX_LINE_LENGTH, fp) != NULL) {
+        // Check if line is a comment or empty
+        if (line[0] == '#' || strncmp(line, "\r\n", strlen("\r\n")) == 0) {
+            continue;
+        }
+
+        // Parse the line based on the configuration option
+        if (strncmp(line, "THREADS", strlen("THREADS")) == 0) {
+            threads = atoi(strchr(line, '=') + 1);
+        } else if (strncmp(line, "PORT", strlen("PORT")) == 0) {
+            port = atoi(strchr(line, '=') + 1);
+        } else if (strncmp(line, "HOME", strlen("HOME")) == 0) {
+            strcpy(home, strchr(line, '=') + 1);
+            // Remove trailing newline character
+            home[strcspn(home, "\n")] = 0;
+        }
+    }
+
+    fclose(fp);
+
+    printf("Threads: %d\n", threads);
+    printf("Port: %d\n", port);
+    printf("Home: %s\n", home);
+
+    return 0;
+}
 
 char* get_file_extension(char* uri) {
     char* ext = strrchr(uri, '.');
