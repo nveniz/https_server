@@ -383,6 +383,29 @@ ContentType getcontent-type_enum(char *buf){
     else if(!strncmp("application/pdf", buf, strlen("application/pdf")) return pdf;
     return other;
 }
+
+char * getcontet-type_str(ContentType content_type){
+    switch(content_type){
+        case html:
+            return "text/html";
+        case php:
+            return "text/x-php"
+        case plain:
+            return "text/plain";
+        case jpeg:
+            return "image/jpeg";
+        case python:
+            return "application/x-python-code";
+        case gif:
+            return "image/gif";
+        case pdf:
+            return "application/pdf";
+       defult:
+            return "application/octet-stream";
+    }
+}
+
+
 int main(){
     char* output_buffer=(char*)(malloc(5*sizeof(char)));
     execute_script("../test.py",NULL,output_buffer,5);
