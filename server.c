@@ -30,10 +30,10 @@ void send_response(int client_sock, char* http_version, char* status_code, char*
 /* Function to read a file into a buffer */
 int read_file(char* filename, char* buffer, int buffer_size);
 
-/* Function to execute a script and capture output */
+/* Function to execute a script and capture output */       //DONE_WORKING
 int execute_script(char* script_name, char* script_args, char* output_buffer, int output_size);
 
-/* Function to extract the file extension from a URI */
+/* Function to extract the file extension from a URI */     //DONE_WORKING
 char* get_file_extension(char* uri);
 
 /* Function to generate an appropriate content type based on file extension */
@@ -62,6 +62,69 @@ void handle_trace(int client_sock, char* uri, char* http_version);
 
 /* Function to parse the client's request*/     //DONE
 int parse_request(char *request, char *method, char *uri, char *http_version, char *user_agent, char *host, char *connection, char* content_type, char* post_data);
+
+char* get_file_extension(char* uri) {
+    char* ext = strrchr(uri, '.');
+    if (ext == NULL || ext == uri) {
+        return ""; // No extension found
+    }
+    return ext + 1;
+}
+
+/* Function to execute a script and capture output */
+int execute_script(char* script_name, char* script_args, char* output_buffer, int output_size) {
+    FILE *fp;
+    int bytes_read = 0;
+    char command[PATH_MAX];
+
+    // Determine the file extension
+    char* file_ext = get_file_extension(script_name);
+
+    // Determine the interpreter command
+    char* interpreter_command;
+    if (strcmp(file_ext, "py") == 0) {
+        interpreter_command = "python3";
+    } else if (strcmp(file_ext, "php") == 0) {
+        interpreter_command = "php";
+    } else {
+        printf("Unsupported file extension\n");
+        return -1; // Unsupported file extension
+    }
+
+    // Construct the command to execute the script
+    if (script_args == NULL) {
+        snprintf(command, PATH_MAX, "%s %s", interpreter_command, script_name);
+    } else {
+        snprintf(command, PATH_MAX, "%s %s %s", interpreter_command, script_name, script_args);
+    }
+
+    // Open a pipe to the script interpreter
+    fp = popen(command, "r");
+    if (fp == NULL) {
+        return -1; // Error opening pipe
+    }
+
+    // Read the output from the pipe
+    while (fgets(output_buffer + bytes_read, output_size - bytes_read, fp) != NULL) {
+        bytes_read += strlen(output_buffer + bytes_read);
+
+        // If the buffer is full, allocate a larger buffer
+        if (bytes_read >= output_size - 1) {
+            output_size *= 2;
+            output_buffer = realloc(output_buffer, output_size);
+            if (output_buffer == NULL) {
+                pclose(fp);
+                return -1; // Error reallocating buffer
+            }
+        }
+    }
+    printf("%s", output_buffer);
+    // Close the pipe
+    pclose(fp);
+
+    return bytes_read;
+}
+
 
 void send_response(int client_sock, char* http_version, char* status_code, char* status_msg, char* content_type, char* connection, char* content, int content_length) {
     char response_headers[MAX_REQUEST_SIZE];
@@ -157,10 +220,11 @@ void handle_request(int client_sock, char* method, char* uri, char* http_version
         path = "/index.html";
     }
     char file_path[PATH_MAX];
-    snprintf(file_path, PATH_MAX, "webroot%s", path);
-    FILE* file = fopen(file_path, "r");
+    // snprintf(file_path, PATH_MAX, "webroot%s", path);
+    FILE* file = fopen(path, "r");
     if (file == NULL) {
-        send_error_response(client_sock, 404, "Not Found");
+        printf("404 Not found");
+        // send_error_response(client_sock, 404, "Not Found");
         return;
     }
 
@@ -188,7 +252,8 @@ void handle_request(int client_sock, char* method, char* uri, char* http_version
     char buffer[1024];
     size_t bytes_read;
     while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
-        send_response_body(client_sock, buffer, bytes_read);
+        // send_response_body(client_sock, buffer, bytes_read);
+        printf("%s",buffer);
     }
 
     // Close the file
@@ -270,7 +335,9 @@ int parse_request(char *request, char *method, char *uri, char *http_version, ch
 
 
 int main(){
-
+    char* output_buffer=(char*)(malloc(5*sizeof(char)));
+    execute_script("../test.py",NULL,output_buffer,5);
+    
     //  // Read the request data from the client socket
     // int request_len = recv(client_sock, request, MAX_REQUEST_SIZE - 1, 0);
     // if (request_len < 0) {
@@ -281,7 +348,7 @@ int main(){
     
     // request[request_len] = '\0'; // add terminate character
 
-    char request[] = "POST /sample.html HTTP/1.1\nUser-Agent: My_web_browser\nContent-Type: txt/html\nHost: astarti.cs.ucy.ac.cy:30000\nConnection: keep-alive\n\nhtml data";
+    char request[] = "POST ../test.py HTTP/1.1\nUser-Agent: My_web_browser\nContent-Type: txt/html\nHost: astarti.cs.ucy.ac.cy:30000\nConnection: keep-alive\n\nhtml data";
     char method[16];
     char uri[256];
     char http_version[16];
@@ -298,6 +365,8 @@ int main(){
     //     close(client_sock);
     //     return NULL;
     // }
+    
+    handle_request(1,method,uri,http_version,user_agent, host, connection,content_type,post_data);
     printf("%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n",method,uri,http_version,user_agent,host,connection,content_type,post_data);
 }
 
