@@ -9,31 +9,31 @@
 #define MAX_REQUEST_SIZE 1024 // maximum size of the HTTP request
 #define URL_BUFSIZE 256
 #define PATH_MAX 512 // maximum size of the HTTP request
+#define MAX_LINE_LENGTH 50
 
 #define HTTP_VERSION "HTTP/1.1"
 
 
-typedef enum method {unknown, GET, POST, DELETE, HEAD} Method;
-typedef enum content_type{unknown, plain, html, php, python, jpeg, gif, pdf}ContentType;
+typedef enum {unknown_method, GET, POST, DELETE, HEAD} Method;
+typedef enum {unknown_con_type, plain, html, php, python, jpeg, gif, pdf, other}ContentType;
 
-typdef struct http_request{
-    enum method = unknown;
+typedef struct http_request{
+    Method method;
     char *uri;
-    int keep-alive=1;
-    enum content_type = unknown;
+    int keep_alive;
+    ContentType content_type;
     int content_length;
     char *body;
-}REQUEST;
+} REQUEST;
 
-typdef struct http_response{
-    enum method = unknown;
+typedef struct http_response{
+    Method method;
     int status_code;
     char *status_msg;
-    enum content_type;
+    ContentType content_type;
     int content_length;
     char *body;
-
-}RESPONSE;
+} RESPONSE;
 
 /* Function to parse server's conf file */
 void parse_conf();
@@ -71,6 +71,10 @@ void handle_delete(REQUEST *reqst,  RESPONSE *rspns );
 /* Function to parse the client's request*/ //DONE
 int parse_request(char *request, REQUEST *rqst);
 
+ContentType getcontent_type_enum(char *buf);
+
+Method getmethod_enum(char *buf);
+
 void parse_conf(){
     FILE* fp;
     char line[MAX_LINE_LENGTH];
@@ -107,8 +111,6 @@ void parse_conf(){
     printf("Threads: %d\n", threads);
     printf("Port: %d\n", port);
     printf("Home: %s\n", home);
-
-    return 0;
 }
 
 char* get_file_extension(char* uri) {
@@ -304,7 +306,7 @@ void handle_request(int client_sock, char* method, char* uri, char* http_version
 
 /* if return -1, invalid request */
 //TODO
-int parse_request(char *request, REQEUST *reqst ){
+int parse_request(char *request, REQUEST *reqst ){
 
     char* request_copy = (char*)(malloc(strlen(request)+1));
     memcpy(request_copy,request,strlen(request)+1);
@@ -320,8 +322,8 @@ int parse_request(char *request, REQEUST *reqst ){
     }
 
     /* Get method */
-    reqst->method = getmethod(token);
-    if(reqst->method == unknown){
+    reqst->method = getmethod_enum(token);
+    if(reqst->method == unknown_method){
         return -1;
     }
 
@@ -351,13 +353,13 @@ int parse_request(char *request, REQEUST *reqst ){
             break; // no more headers
         }
         if (strncmp(token, "Connection: ", strlen("Connection: ")) == 0) {
-            /* If connection is not keep-alive */
-            if(strncmp(token + strlen("Connection: "), "keep-alive", strlen("keep-alive"))){
-                reqst->keep-alive = 0;
+            /* If connection is not keep_alive */
+            if(strncmp(token + strlen("Connection: "), "keep_alive", strlen("keep_alive"))){
+                reqst->keep_alive = 0;
             }
         } else if (strncmp(token, "Content-Type: ", strlen("Content-Type: ")) == 0) {
             /* Get content type from string */
-            reqst->content-type = getcontent-type_enum(token + strlen("Content-Type: "));
+            reqst->content_type = getcontent_type_enum(token + strlen("Content-Type: "));
 
         } else if (strncmp(token, "Content-Length: ", strlen("Content-Length: ")) == 0) {
             erro = 0;
@@ -370,7 +372,7 @@ int parse_request(char *request, REQEUST *reqst ){
     }
     // Extract the post data for POST requests
     if(reqst->method == POST){
-        if(reqst->content_type == unknown ){
+        if(reqst->content_type == unknown_con_type ){
             return -1;
         }
         reqst->body = (char *)malloc(sizeof(char)*reqst->content_length);
@@ -406,31 +408,31 @@ int http_response_init(RESPONSE **rspns){
 }
 
 Method getmethod_enum(char *buf){
-    if(!strncmp("GET", buf, strlen("GET")) return GET;
-    else if(!strncmp("POST", buf, strlen("POST")) return POST;
-    else if(!strncmp("DELETE", buf, strlen("DELETE")) return DELETE;
-    else if(!strncmp("HEAD", buf, strlen("HEAD")) return HEAD;
+    if(!strncmp("GET", buf, strlen("GET"))) return GET;
+    else if(!strncmp("POST", buf, strlen("POST"))) return POST;
+    else if(!strncmp("DELETE", buf, strlen("DELETE"))) return DELETE;
+    else if(!strncmp("HEAD", buf, strlen("HEAD"))) return HEAD;
     
-    return unknown;
+    return unknown_method;
 }
 
-ContentType getcontent-type_enum(char *buf){
-    if(!strncmp("text/html", buf, strlen("text/html")) return html;
-    else if(!strncmp("text/x-php", buf, strlen("text/x-php")) return php;
-    else if(!strncmp("text/plain", buf, strlen("text/plain")) return plain;
-    else if(!strncmp("image/jpeg", buf, strlen("image/jpeg")) return jpeg;
-    else if(!strncmp("application/x-python-code", buf, strlen("application/x-python-code")) return python;
-    else if(!strncmp("image/gif", buf, strlen("image/gif")) return gif;
-    else if(!strncmp("application/pdf", buf, strlen("application/pdf")) return pdf;
+ContentType getcontent_type_enum(char *buf){
+    if(!strncmp("text/html", buf, strlen("text/html"))) return html;
+    else if(!strncmp("text/x-php", buf, strlen("text/x-php"))) return php;
+    else if(!strncmp("text/plain", buf, strlen("text/plain"))) return plain;
+    else if(!strncmp("image/jpeg", buf, strlen("image/jpeg"))) return jpeg;
+    else if(!strncmp("application/x-python-code", buf, strlen("application/x-python-code"))) return python;
+    else if(!strncmp("image/gif", buf, strlen("image/gif"))) return gif;
+    else if(!strncmp("application/pdf", buf, strlen("application/pdf"))) return pdf;
     return other;
 }
 
-char * getcontent-type_str(ContentType content_type){
+char * getcontent_type_str(ContentType content_type){
     switch(content_type){
         case html:
             return "text/html";
         case php:
-            return "text/x-php"
+            return "text/x-php";
         case plain:
             return "text/plain";
         case jpeg:
@@ -455,42 +457,44 @@ char * get_content_type(char *ext){
            !strncmp(ext, ".c", strlen(".c")) ||
            !strncmp(ext, ".h", strlen(".h"))) {
             
-            return getcontent-type_str(plain);
+            return getcontent_type_str(plain);
 
         } else if (!strncmp(ext, ".html", strlen(".html")) ||
             !strncmp(ext, ".htm", strlen(".htm"))) {
             
-            return getcontent-type_str(html);
+            return getcontent_type_str(html);
 
         } else if (!strncmp(ext, ".php", strlen(".php"))) {
 
-            return getcontent-type_str(php);
+            return getcontent_type_str(php);
 
         } else if (!strncmp(ext, ".py", strlen(".py"))){
 
-            return getcontent-type_str(python);
+            return getcontent_type_str(python);
 
         } else if (!strncmp(ext, ".jpeg", strlen(".jpeg")) || 
             !strncmp(ext, ".jpg", strlen(".jpg"))){
 
-            return getcontent-type_str(jpeg);
+            return getcontent_type_str(jpeg);
 
-        } else if (!strncmp(ext, ".gif", strlen(".gif")))}
+        } else if (!strncmp(ext, ".gif", strlen(".gif"))){
 
-            return getcontent-type_str(gif);
+            return getcontent_type_str(gif);
 
-        } else if (!strncmp(ext, ".pdf", strlen(".pdf")))}
+        } else if (!strncmp(ext, ".pdf", strlen(".pdf"))){
 
-            return getcontent-type_str(pdf);
+            return getcontent_type_str(pdf);
 
-        }else { 
-            return getcontent-type_str(other);
+        } else {
+            return getcontent_type_str(other);
         }
 }
 
 int main(){
     char* output_buffer=(char*)(malloc(5*sizeof(char)));
     execute_script("../test.py",NULL,output_buffer,5);
+    
+    parse_conf();
     
     //  // Read the request data from the client socket
     // int request_len = recv(client_sock, request, MAX_REQUEST_SIZE - 1, 0);
@@ -502,7 +506,7 @@ int main(){
     
     // request[request_len] = '\0'; // add terminate character
 
-    char request[] = "POST ../test.py HTTP/1.1\nUser-Agent: My_web_browser\nContent-Type: txt/html\nHost: astarti.cs.ucy.ac.cy:30000\nConnection: keep-alive\n\nhtml data";
+    char request[] = "POST ../test.py HTTP/1.1\nUser-Agent: My_web_browser\nContent-Type: txt/html\nHost: astarti.cs.ucy.ac.cy:30000\nConnection: keep_alive\n\nhtml data";
     char method[16];
     char uri[256];
     char http_version[16];
@@ -513,15 +517,12 @@ int main(){
     char post_data[1024];
     
     // Parse the request
-    int parse_result = parse_request(request, method, uri, http_version, user_agent, host, connection,content_type,post_data);
     // if (parse_result == -1) {
     //     printf("Invalid request\n");
     //     close(client_sock);
     //     return NULL;
     // }
     
-    handle_request(1,method,uri,http_version,user_agent, host, connection,content_type,post_data);
-    printf("%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n",method,uri,http_version,user_agent,host,connection,content_type,post_data);
 }
 
 
