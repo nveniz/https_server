@@ -26,6 +26,7 @@ typdef struct http_request{
 }REQUEST;
 
 typdef struct http_response{
+    enum method = unknown;
     int status_code;
     char *status_msg;
     enum content_type;
@@ -34,23 +35,14 @@ typdef struct http_response{
 
 }RESPONSE;
 
-/* Function to send response headers */     //DONE
-void send_response_headers(int client_sock, char* response_headers);
-
-/* Function to send response body */        //DONE
-void send_response_body(int client_sock, char* buffer, int bytes_read);
-
-/* Function to send error response */       //DONE
-void send_error_response(int client_sock, int status_code, char *message);
-
 /* Function to handle incoming clients */   //INCOMPLETE
 void handle_client(QUEUE q);
 
 /* Function to handle incoming requests */  //TO-DO
-void handle_request(int client_sock, char* method, char* uri, char* http_version, char* user_agent, char* host, char* connection, char* content_type, char* post_data);
+void handle_request(int client_sock, REQUEST *rqst);
 
 /* Function to send HTTP response */        //DONE
-void send_response(int client_sock, char* http_version, char* status_code, char* status_msg, char* content_type, char* response, char* content, int content_length);
+void send_response(int client_sock, RESPONSE *rspns);
 
 /* Function to execute a script and capture output */
 int execute_script(char* script_name, char* script_args, char* output_buffer, int output_size);
@@ -62,20 +54,21 @@ char* get_file_extension(char* uri);
 char* get_content_type(char* file_ext);
 
 /* Function to handle HTTP GET requests */
-void handle_get(int client_sock, char* uri, char* http_version);
+void handle_get(REQUEST *reqst,  RESPONSE *rspns );
 
 /* Function to handle HTTP POST requests */
-void handle_post(int client_sock, char* uri, char* http_version, char* content_type, char* post_data);
+void handle_post(REQUEST *reqst,  RESPONSE *rspns );
 
 /* Function to handle HTTP HEAD requests */
-void handle_head(int client_sock, char* uri, char* http_version);
+void handle_head(REQUEST *reqst,  RESPONSE *rspns );
 
 /* Function to handle HTTP DELETE requests */
-void handle_delete(int client_sock, char* uri, char* http_version);
-
+void handle_delete(REQUEST *reqst,  RESPONSE *rspns );
 
 /* Function to parse the client's request*/     //DONE
-int parse_request(char *request, char *method, char *uri, char *http_version, char *user_agent, char *host, char *connection, char* content_type, char* post_data);
+int parse_request(char *request, REQUEST *rqst);
+
+
 
 char* get_file_extension(char* uri) {
     char* ext = strrchr(uri, '.');
@@ -196,37 +189,30 @@ void send_error_response(int client_sock, int status_code, char *message) {
     send(client_sock, response, strlen(response), 0);
 }
 
-// void handle_client(int client_sock) {
-//      // Read the request data from the client socket
-//     int request_len = recv(client_sock, request, MAX_REQUEST_SIZE - 1, 0);
-//     if (request_len < 0) {
-//         perror("recv failed");
-//         close(client_sock);
-//     }
-    
-//     request[request_len] = '\0'; // add terminate character
 
-//     char request[] = "POST /sample.html HTTP/1.1\nUser-Agent: My_web_browser\nContent-Type: txt/html\nHost: astarti.cs.ucy.ac.cy:30000\nConnection: keep-alive\n\nhtml data";
-//     char method[16];
-//     char uri[256];
-//     char http_version[16];
-//     char user_agent[256];
-//     char host[2gg56];
-//     char connection[256];
-//     char content_type[16];
-//     char post_data[1024];
-    
-//     // Parse the request
-//     int parse_result = parse_request(request, method, uri, http_version, user_agent, host, connection,content_type,post_data);
-    
-//     // ****TO DO - handle connection Keep-alive****
+void handle_request(SSL socket, REQUEST *rqst){
+    switch(reqst->method){
+        case GET:
+            handle_get(rqst, rspns);
+            break;
+        case POST:
+            handle_post(rqst, rspns);
+            break;
+        case DELETE:
+            handle_delete(rqst, rspns);
+            break;
+        case HEAD:
+            handle_head(rqst, rspns);
+            break;
+    }
+    send_response(SSL socket, rspns);
+}
 
-//     if (parse_result == -1) {
-//         printf("Invalid request\n");
-//         close(client_sock);
-//     }
-// }
 
+
+
+
+/*
 void handle_request(int client_sock, char* method, char* uri, char* http_version, char* user_agent, char* host, char* connection, char* content_type, char* post_data) {
     // Open the requested file
     char* path = uri;
@@ -273,8 +259,7 @@ void handle_request(int client_sock, char* method, char* uri, char* http_version
     // Close the file
     fclose(file);
 }
-
-//int parse_request(char *request, char *method, char *uri, char *http_version, char *user_agent, char *host, char *connection, char* content_type, char* post_data) {
+*/
 
 /* if return -1, invalid request */
 //TODO
@@ -372,9 +357,9 @@ int http_request_init(REQUEST **reqst){
 
 }
 
-int http_response_init(RESPONSE **rspnd){
-    *rspnd = (RESPONSE*) malloc(sizeof(RESPONSE));
-    if ( rspnd == NULL){
+int http_response_init(RESPONSE **rspns){
+    *rspns = (RESPONSE*) malloc(sizeof(RESPONSE));
+    if ( rspns == NULL){
         return 1;
     }
 }
