@@ -7,32 +7,7 @@
 
 
 #define MAX_REQUEST_SIZE 1024 // maximum size of the HTTP request
-#define URL_BUFSIZE 256
 #define PATH_MAX 512 // maximum size of the HTTP request
-
-#define HTTP_VERSION "HTTP/1.1"
-
-
-typedef enum method {unknown, GET, POST, DELETE, HEAD} Method;
-typedef enum content_type{unknown, plain, html, php, python, jpeg, gif, pdf}ContentType;
-
-typdef struct http_request{
-    enum method = unknown;
-    char *uri;
-    int keep-alive=1;
-    enum content_type = unknown;
-    int content_length;
-    char *body;
-}REQUEST;
-
-typdef struct http_response{
-    int status_code;
-    char *status_msg;
-    enum content_type;
-    int content_length;
-    char *body;
-
-}RESPONSE;
 
 /* Function to send response headers */     //DONE
 void send_response_headers(int client_sock, char* response_headers);
@@ -44,13 +19,16 @@ void send_response_body(int client_sock, char* buffer, int bytes_read);
 void send_error_response(int client_sock, int status_code, char *message);
 
 /* Function to handle incoming clients */   //INCOMPLETE
-void handle_client(QUEUE q);
+void handle_client(int client_sock);
 
 /* Function to handle incoming requests */  //TO-DO
 void handle_request(int client_sock, char* method, char* uri, char* http_version, char* user_agent, char* host, char* connection, char* content_type, char* post_data);
 
 /* Function to send HTTP response */        //DONE
 void send_response(int client_sock, char* http_version, char* status_code, char* status_msg, char* content_type, char* response, char* content, int content_length);
+
+/* Function to read a file into a buffer */
+int read_file(char* filename, char* buffer, int buffer_size);
 
 /* Function to execute a script and capture output */
 int execute_script(char* script_name, char* script_args, char* output_buffer, int output_size);
@@ -70,9 +48,17 @@ void handle_post(int client_sock, char* uri, char* http_version, char* content_t
 /* Function to handle HTTP HEAD requests */
 void handle_head(int client_sock, char* uri, char* http_version);
 
+/* Function to handle HTTP PUT requests */
+void handle_put(int client_sock, char* uri, char* http_version);
+
 /* Function to handle HTTP DELETE requests */
 void handle_delete(int client_sock, char* uri, char* http_version);
 
+/* Function to handle HTTP OPTIONS requests */
+void handle_options(int client_sock, char* uri, char* http_version);
+
+/* Function to handle HTTP TRACE requests */
+void handle_trace(int client_sock, char* uri, char* http_version);
 
 /* Function to parse the client's request*/     //DONE
 int parse_request(char *request, char *method, char *uri, char *http_version, char *user_agent, char *host, char *connection, char* content_type, char* post_data);
@@ -148,7 +134,7 @@ void send_error_response(int client_sock, int status_code, char *message) {
 //     char uri[256];
 //     char http_version[16];
 //     char user_agent[256];
-//     char host[2gg56];
+//     char host[256];
 //     char connection[256];
 //     char content_type[16];
 //     char post_data[1024];
@@ -209,12 +195,7 @@ void handle_request(int client_sock, char* method, char* uri, char* http_version
     fclose(file);
 }
 
-//int parse_request(char *request, char *method, char *uri, char *http_version, char *user_agent, char *host, char *connection, char* content_type, char* post_data) {
-
-/* if return -1, invalid request */
-//TODO
-int parse_request(char *request, REQEUST *reqst ){
-
+int parse_request(char *request, char *method, char *uri, char *http_version, char *user_agent, char *host, char *connection, char* content_type, char* post_data) {
     char* request_copy = (char*)(malloc(strlen(request)+1));
     memcpy(request_copy,request,strlen(request)+1);
     request_copy[strlen(request_copy)+1]='\0';
@@ -227,19 +208,13 @@ int parse_request(char *request, REQEUST *reqst ){
     if (token == NULL) {
         return -1; // invalid request
     }
+    memcpy(method, token, strlen(token)+1); // copy the method string
 
-    /* Get method */
-    reqst->method = getmethod(token);
-    if(reqst->method == unknown){
-        return -1;
-    }
-
-    /* Extract the URI */
+    // Extract the URI
     token = strtok_r(rest, " ", &rest);
     if (token == NULL) {
         return -1; // invalid request
     }
-
     memcpy(uri, token, strlen(token)+1); // copy the URI string
 
     // Extract the HTTP version
@@ -247,92 +222,53 @@ int parse_request(char *request, REQEUST *reqst ){
     if (token == NULL) {
         return -1; // invalid request
     }
+    memcpy(http_version, token, strlen(token)+1); // copy the HTTP version string
+
     // Check that the HTTP version is valid
-    if (strncmp(token, "HTTP/1.1", strlen("HTTP/1.1"))) {
-        
+    if (strncmp(http_version, "HTTP/", 5) != 0) {
         return -1; // invalid request
     }
 
     // Extract the User-Agent header
     while (rest != NULL) {
         token = strtok_r(rest, "\n", &rest);
-        if (token == '\r') {
+        if (token == NULL) {
             break; // no more headers
         }
-        if (strncmp(token, "Connection: ", strlen("Connection: ")) == 0) {
-            /* If connection is not keep-alive */
-            if(strncmp(token + strlen("Connection: "), "keep-alive", strlen("keep-alive"))){
-                reqst->keep-alive = 0;
-            }
+        if (strncmp(token, "User-Agent: ", strlen("User-Agent: ")) == 0) {
+            strncpy(user_agent, token + strlen("User-Agent: "), strlen(token + strlen("User-Agent: ")) + 1); // copy the User-Agent string
+        } else if (strncmp(token, "Host: ", strlen("Host: ")) == 0) {
+            strncpy(host, token + strlen("Host: "), strlen(token + strlen("Host: ")) + 1); // copy the Host string
+        } else if (strncmp(token, "Connection: ", strlen("Connection: ")) == 0) {
+            strncpy(connection, token + strlen("Connection: "), strlen(token + strlen("Connection: ")) + 1); // copy the Connection string
         } else if (strncmp(token, "Content-Type: ", strlen("Content-Type: ")) == 0) {
-            /* Get content type from string */
-            reqst->content-type = getcontent-type_enum(token + strlen("Content-Type: "));
-
-        } else if (strncmp(token, "Content-Length: ", strlen("Content-Length: ")) == 0) {
-            erro = 0;
-            reqst->content_length = strtol(token+strlen("Content-Length: "), NULL, 2);
-            if(erro != 0){
-                perror("Parsing content-length");
-                return -1;
-            }
+            strncpy(content_type, token + strlen("Content-Type: "), strlen(token + strlen("Content-Type: ")) + 1); // copy the Content-Type string
         }
     }
+
     // Extract the post data for POST requests
-    if(reqst->method == POST){
-        if(reqst->content_type == unknown ){
-            return -1;
+    if (strcasecmp(method, "POST") == 0) {
+        char *post_data_start = strstr(request, "\n\n");
+        if (post_data_start != NULL && content_type != NULL) {
+            size_t post_data_len = strlen(post_data_start + strlen("\n\n"));  // Add strlen to skip the "\n\n" sequence
+            if (post_data_len < 1024) {
+                strcpy(post_data, post_data_start + strlen("\n\n"));
+            } else {
+                printf("Post Data too large");
+            // Post data is too large for the buffer, handle the error
+            // ...
+            }
+            strcpy(post_data, post_data_start + strlen("\n\n"));
         }
-        reqst->body = (char *)malloc(sizeof(char)*reqst->content_length);
-        
-        char *body = strstr(request, "\r\n\r\n");
-        memcpy(reqst->body, body, reqst->content_length);
     }
 
-    free(request_copy); 
-    return 0;
+    free(request_copy); // ****might affect the return value****
+    // Return the length of the parsed request
+    return (int)(rest - request) + 2;
 }
 
 
 
-int http_request_init(REQUEST **reqst){
-    *reqst = (REQUEST *) malloc(sizeof(REQUEST));
-    if ( reqst == NULL){
-        return 1;
-    }
-    reqst->uri = (char *)malloc(sizeof(char)*URL_BUFSIZE);
-    if(reqst->uri == NULL){
-        return 1;   
-    }
-    return 0;
-
-}
-
-int http_response_init(RESPONSE **rspnd){
-    *rspnd = (RESPONSE*) malloc(sizeof(RESPONSE));
-    if ( rspnd == NULL){
-        return 1;
-    }
-}
-
-Method getmethod_enum(char *buf){
-    if(!strncmp("GET", buf, strlen("GET")) return GET;
-    else if(!strncmp("POST", buf, strlen("POST")) return POST;
-    else if(!strncmp("DELETE", buf, strlen("DELETE")) return DELETE;
-    else if(!strncmp("HEAD", buf, strlen("HEAD")) return HEAD;
-    
-    return unknown;
-}
-
-ContentType getcontent-type_enum(char *buf){
-    if(!strncmp("text/html", buf, strlen("text/html")) return html;
-    else if(!strncmp("text/x-php", buf, strlen("text/x-php")) return php;
-    else if(!strncmp("text/plain", buf, strlen("text/plain")) return plain;
-    else if(!strncmp("image/jpeg", buf, strlen("image/jpeg")) return jpeg;
-    else if(!strncmp("application/x-python-code", buf, strlen("application/x-python-code")) return python;
-    else if(!strncmp("image/gif", buf, strlen("image/gif")) return gif;
-    else if(!strncmp("application/pdf", buf, strlen("application/pdf")) return pdf;
-    return other;
-}
 int main(){
 
     //  // Read the request data from the client socket
