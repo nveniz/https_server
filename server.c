@@ -333,7 +333,7 @@ int parse_request(char *request, REQUEST *reqst ){
         return -1; // invalid request
     }
 
-    memcpy(uri, token, strlen(token)+1); // copy the URI string
+    memcpy(reqst->uri, token, strlen(token)+1); // copy the URI string
 
     // Extract the HTTP version
     token = strtok_r(rest, "\n", &rest);
@@ -387,8 +387,8 @@ int parse_request(char *request, REQUEST *reqst ){
 
 
 
-int http_request_init(REQUEST **reqst){
-    *reqst = (REQUEST *) malloc(sizeof(REQUEST));
+int http_request_init(REQUEST* reqst){
+    reqst = (REQUEST *) malloc(sizeof(REQUEST));
     if ( reqst == NULL){
         return 1;
     }
@@ -400,8 +400,8 @@ int http_request_init(REQUEST **reqst){
 
 }
 
-int http_response_init(RESPONSE **rspns){
-    *rspns = (RESPONSE*) malloc(sizeof(RESPONSE));
+int http_response_init(RESPONSE* rspns){
+    rspns = (RESPONSE*) malloc(sizeof(RESPONSE));
     if ( rspns == NULL){
         return 1;
     }
