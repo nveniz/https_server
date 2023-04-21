@@ -133,7 +133,7 @@ int execute_script(char* script_name, char* script_args, char* output_buffer, in
 }
 
 
-void send_response(int client_sock, char* http_version, char* status_code, char* status_msg, char* content_type, char* connection, char* content, int content_length) {
+void send_response(int client_sock, RESPONSE *rspns){
     char response_headers[MAX_REQUEST_SIZE];
     snprintf(response_headers, MAX_REQUEST_SIZE, "%s %s %s\nContent-Type: %s\nContent-Length: %d\nConnection: %s\n\n", http_version, status_code, status_msg, content_type, content_length, connection);
     int headers_len = strlen(response_headers);
