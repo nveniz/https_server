@@ -2,13 +2,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <openssl/ssl.h>
 
 
 #define MAX_REQUEST_SIZE 1024 // maximum size of the HTTP request
 #define URL_BUFSIZE 256
-#define PATH_MAX 512 // maximum size of the HTTP request
+//#define PATH_MAX 512 // maximum size of the HTTP request
 #define MAX_LINE_LENGTH 50
 
 #define HTTP_VERSION "HTTP/1.1"
@@ -42,10 +44,10 @@ void parse_conf();
 void handle_client(QUEUE q);
 
 /* Function to handle incoming requests */  //DONE
-void handle_request(int client_sock, REQUEST *rqst);
+void handle_request(SSL *socket, REQUEST *rqst, RESPONSE *rspns);
 
 /* Function to send HTTP response */        //TODO
-void send_response(int client_sock, RESPONSE *rspns);
+void send_response(SSL *socket, RESPONSE *rspns);
 
 /* Function to execute a script and capture output */ //DONE
 int execute_script(char* script_name, char* script_args, char* output_buffer, int output_size);
@@ -176,65 +178,65 @@ int execute_script(char* script_name, char* script_args, char* output_buffer, in
 }
 
 
-void send_response(int client_sock, RESPONSE *rspns){
-    char response_headers[MAX_REQUEST_SIZE];
-    snprintf(response_headers, MAX_REQUEST_SIZE, "%s %s %s\nContent-Type: %s\nContent-Length: %d\nConnection: %s\n\n", http_version, status_code, status_msg, content_type, content_length, connection);
-    int headers_len = strlen(response_headers);
-
-    // Send headers
-    if (send(client_sock, response_headers, headers_len, 0) < 0) {
-        perror("Error sending response headers");
-        return;
-    }
-
-    // Send content
-    if (content_length > 0 && send(client_sock, content, content_length, 0) < 0) {
-        perror("Error sending response body");
-        return;
-    }
+void send_response(SSL *socket, RESPONSE *rspns){
+//    char response_headers[MAX_REQUEST_SIZE];
+//    //snprintf(response_headers, MAX_REQUEST_SIZE, "%s %s %s\nContent-Type: %s\nContent-Length: %d\nConnection: %s\n\n", http_version, status_code, status_msg, content_type, content_length, connection);
+//    int headers_len = strlen(response_headers);
+//
+//    // Send headers
+//    if (send(client_sock, response_headers, headers_len, 0) < 0) {
+//        perror("Error sending response headers");
+//        return;
+//    }
+//
+//    // Send content
+//    if (content_length > 0 && send(client_sock, content, content_length, 0) < 0) {
+//        perror("Error sending response body");
+//        return;
+//    }
 }
 
 
 void send_response_headers(int client_sock, char* response_headers) {
     // Send the response headers to the client
-    int bytes_sent = 0;
-    int total_bytes_sent = 0;
-    int response_length = strlen(response_headers);
-
-    while (total_bytes_sent < response_length) {
-        bytes_sent = send(client_sock, response_headers + total_bytes_sent, response_length - total_bytes_sent, 0);
-
-        if (bytes_sent == -1) {
-            perror("Error sending response headers");
-            break;
-        }
-
-        total_bytes_sent += bytes_sent;
-    }
+//    int bytes_sent = 0;
+//    int total_bytes_sent = 0;
+//    int response_length = strlen(response_headers);
+//
+//    while (total_bytes_sent < response_length) {
+//        bytes_sent = send(client_sock, response_headers + total_bytes_sent, response_length - total_bytes_sent, 0);
+//
+//        if (bytes_sent == -1) {
+//            perror("Error sending response headers");
+//            break;
+//        }
+//
+//        total_bytes_sent += bytes_sent;
+//    }
 }
 
 void send_response_body(int client_sock, char* buffer, int bytes_read) {
-    int bytes_sent = 0;
-    while (bytes_sent < bytes_read) {
-        int result = send(client_sock, buffer + bytes_sent, bytes_read - bytes_sent, 0);
-        if (result == -1) {
-            perror("send");
-            break;
-        }
-        bytes_sent += result;
-    }
+//    int bytes_sent = 0;
+//    while (bytes_sent < bytes_read) {
+//        int result = send(client_sock, buffer + bytes_sent, bytes_read - bytes_sent, 0);
+//        if (result == -1) {
+//            perror("send");
+//            break;
+//        }
+//        bytes_sent += result;
+//    }
 }
 
 void send_error_response(int client_sock, int status_code, char *message) {
-    char response[1024];
-    sprintf(response, "HTTP/1.1 %d %s\r\nContent-Length: %ld\r\n\r\n%s",
-            status_code, message, strlen(message), message);
-    send(client_sock, response, strlen(response), 0);
+//    char response[1024];
+//    sprintf(response, "HTTP/1.1 %d %s\r\nContent-Length: %ld\r\n\r\n%s",
+//            status_code, message, strlen(message), message);
+//    send(client_sock, response, strlen(response), 0);
 }
 
 
-void handle_request(SSL socket, REQUEST *rqst){
-    switch(reqst->method){
+void handle_request(SSL *socket, REQUEST *rqst, RESPONSE *rspns){
+    switch(rqst->method){
         case GET:
             handle_get(rqst, rspns);
             break;
@@ -248,7 +250,7 @@ void handle_request(SSL socket, REQUEST *rqst){
             handle_head(rqst, rspns);
             break;
     }
-    send_response(SSL socket, rspns);
+    send_response(socket, rspns);
 }
 
 
@@ -333,7 +335,12 @@ int parse_request(char *request, REQUEST *reqst ){
         return -1; // invalid request
     }
 
-    memcpy(uri, token, strlen(token)+1); // copy the URI string
+    if(strlen(token)+1 > URL_BUFSIZE){
+        fprintf(stderr,"URL bigger than bufsize!\n");
+        return -1;
+    }
+    memcpy(reqst->uri, token, strlen(token)+1); // copy the URI string
+
 
     // Extract the HTTP version
     token = strtok_r(rest, "\n", &rest);
@@ -349,7 +356,7 @@ int parse_request(char *request, REQUEST *reqst ){
     // Extract the User-Agent header
     while (rest != NULL) {
         token = strtok_r(rest, "\n", &rest);
-        if (token == '\r') {
+        if (*token == '\r') {
             break; // no more headers
         }
         if (strncmp(token, "Connection: ", strlen("Connection: ")) == 0) {
@@ -362,9 +369,9 @@ int parse_request(char *request, REQUEST *reqst ){
             reqst->content_type = getcontent_type_enum(token + strlen("Content-Type: "));
 
         } else if (strncmp(token, "Content-Length: ", strlen("Content-Length: ")) == 0) {
-            erro = 0;
+            errno = 0;
             reqst->content_length = strtol(token+strlen("Content-Length: "), NULL, 2);
-            if(erro != 0){
+            if(errno != 0){
                 perror("Parsing content-length");
                 return -1;
             }
@@ -392,8 +399,8 @@ int http_request_init(REQUEST **reqst){
     if ( reqst == NULL){
         return 1;
     }
-    reqst->uri = (char *)malloc(sizeof(char)*URL_BUFSIZE);
-    if(reqst->uri == NULL){
+    (*reqst)->uri = (char *)malloc(sizeof(char)*URL_BUFSIZE);
+    if((*reqst)->uri == NULL){
         return 1;   
     }
     return 0;
