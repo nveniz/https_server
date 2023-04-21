@@ -35,37 +35,37 @@ typdef struct http_response{
 
 }RESPONSE;
 
-/* Function to handle incoming clients */   //INCOMPLETE
+/* Function to handle incoming clients */   //TODO LAST
 void handle_client(QUEUE q);
 
-/* Function to handle incoming requests */  //TO-DO
+/* Function to handle incoming requests */  //DONE
 void handle_request(int client_sock, REQUEST *rqst);
 
-/* Function to send HTTP response */        //DONE
+/* Function to send HTTP response */        //TODO
 void send_response(int client_sock, RESPONSE *rspns);
 
-/* Function to execute a script and capture output */
+/* Function to execute a script and capture output */ //DONE
 int execute_script(char* script_name, char* script_args, char* output_buffer, int output_size);
 
-/* Function to extract the file extension from a URI */     //DONE_WORKING
+/* Function to extract the file extension from a URI */ //DONE
 char* get_file_extension(char* uri);
 
-/* Function to generate an appropriate content type based on file extension */
+/* Function to generate an appropriate content type based on file extension */ //DONE
 char* get_content_type(char* file_ext);
 
-/* Function to handle HTTP GET requests */
+/* Function to handle HTTP GET requests */ //TODO
 void handle_get(REQUEST *reqst,  RESPONSE *rspns );
 
-/* Function to handle HTTP POST requests */
+/* Function to handle HTTP POST requests */ //TODO
 void handle_post(REQUEST *reqst,  RESPONSE *rspns );
 
-/* Function to handle HTTP HEAD requests */
+/* Function to handle HTTP HEAD requests */ //TODO
 void handle_head(REQUEST *reqst,  RESPONSE *rspns );
 
-/* Function to handle HTTP DELETE requests */
+/* Function to handle HTTP DELETE requests */ //TODO
 void handle_delete(REQUEST *reqst,  RESPONSE *rspns );
 
-/* Function to parse the client's request*/     //DONE
+/* Function to parse the client's request*/ //DONE
 int parse_request(char *request, REQUEST *rqst);
 
 
@@ -384,7 +384,7 @@ ContentType getcontent-type_enum(char *buf){
     return other;
 }
 
-char * getcontet-type_str(ContentType content_type){
+char * getcontent-type_str(ContentType content_type){
     switch(content_type){
         case html:
             return "text/html";
@@ -405,6 +405,47 @@ char * getcontet-type_str(ContentType content_type){
     }
 }
 
+
+
+char * get_content_type(char *ext){
+        if(!strncmp(ext, ".txt", strlen(".txt")) ||
+           !strncmp(ext, ".sed", strlen(".sed")) ||
+           !strncmp(ext, ".awk", strlen(".awk")) ||
+           !strncmp(ext, ".c", strlen(".c")) ||
+           !strncmp(ext, ".h", strlen(".h"))) {
+            
+            return getcontent-type_str(plain);
+
+        } else if (!strncmp(ext, ".html", strlen(".html")) ||
+            !strncmp(ext, ".htm", strlen(".htm"))) {
+            
+            return getcontent-type_str(html);
+
+        } else if (!strncmp(ext, ".php", strlen(".php"))) {
+
+            return getcontent-type_str(php);
+
+        } else if (!strncmp(ext, ".py", strlen(".py"))){
+
+            return getcontent-type_str(python);
+
+        } else if (!strncmp(ext, ".jpeg", strlen(".jpeg")) || 
+            !strncmp(ext, ".jpg", strlen(".jpg"))){
+
+            return getcontent-type_str(jpeg);
+
+        } else if (!strncmp(ext, ".gif", strlen(".gif")))}
+
+            return getcontent-type_str(gif);
+
+        } else if (!strncmp(ext, ".pdf", strlen(".pdf")))}
+
+            return getcontent-type_str(pdf);
+
+        }else { 
+            return getcontent-type_str(other);
+        }
+}
 
 int main(){
     char* output_buffer=(char*)(malloc(5*sizeof(char)));
