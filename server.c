@@ -131,7 +131,7 @@ char* get_file_extension(char* uri) {
     if (ext == NULL || ext == uri) {
         return ""; // No extension found
     }
-    return ext + 1;
+    return ext;
 }
 
 /* Function to execute a script and capture output */
@@ -213,13 +213,11 @@ void send_response(SSL *socket, RESPONSE *rspns){
 
     printf("-------------------Send response----------------\n");
     write(1, buf,strlen(buf));
-
-    printf("-----------Body----------\n");
-    printf("%s\n", rspns->body);
-    printf("----\n");
-    write(1, rspns->body, strlen(rspns->body));
-    //rspns->content_length);
-    printf("------------------------------------------------\n");
+    if(rspns->body != NULL){
+        printf("-----------Body----------\n");
+        write(1, rspns->body, rspns->content_length);
+        printf("\n------------------------------------------------\n");
+    }
 }
 
 void handle_request(SSL *socket, REQUEST *rqst, RESPONSE *rspns){
@@ -314,9 +312,10 @@ void handle_get(REQUEST *reqst,  RESPONSE *rspns ){
     if (strcmp(path, "/") == 0) {
         path = "/index.html";
     }
-    size_t file_path_len = strlen(webroot)+strlen(path);
+    size_t file_path_len = strlen(webroot)+strlen(path)+1;
     char file_path[file_path_len];
     snprintf(file_path, file_path_len, "%s%s", webroot, path);
+
     FILE* file = fopen(file_path, "r");
     if (file == NULL) {
         rspns->status_code=404;
@@ -459,10 +458,10 @@ int parse_request(char *request, REQUEST *reqst ){
         return -1; // invalid request
     }
 
+    token = strtok_r(rest, "\n", &rest);
     // Extract the User-Agent header
-    do{
-        token = strtok_r(rest, "\n", &rest);
-        
+    while(token != NULL){
+       
         if (strncmp(token, "Connection: ", strlen("Connection: ")) == 0) {
             /* If connection is not keep_alive */
             if(strncmp(token + strlen("Connection: "), "keep-alive", strlen("keep-alive")) != 0){
@@ -486,8 +485,8 @@ int parse_request(char *request, REQUEST *reqst ){
         if (!strcmp(token,"\r")) {
             break;
         }
-        
-    }while(token != NULL);
+        token = strtok_r(rest, "\n", &rest);
+    }
 
     // Extract the post data for POST requests
     if(reqst->method == POST){
@@ -676,7 +675,8 @@ int main(){
                       "\r\nConnection: keep-alive"
                       "\r\n";
 
-    parse_request(post_request,reqst);
+    parse_request(head_request,reqst);
+    printf("okay\n");
     handle_request(NULL, reqst, rspns);
 
 //    printf("%s\n", getcontent_type_str(1));
