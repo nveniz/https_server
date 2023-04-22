@@ -15,6 +15,9 @@
 
 #define HTTP_VERSION "HTTP/1.1"
 
+char* webroot;
+int port;
+int threads;
 
 typedef enum {unknown_method, GET, POST, DELETE, HEAD} Method;
 typedef enum {unknown_con_type, plain, html, php, python, jpeg, gif, pdf, other}ContentType;
@@ -49,7 +52,7 @@ void parse_conf();
 void send_response(SSL *socket, RESPONSE *rspns);
 
 /* Function to execute a script and capture output */ //DONE
-int execute_script(char* script_name, char* output_buffer, int output_size);
+int execute_script(char* file_path, RESPONSE* rspns);
 
 /* Function to extract the file extension from a URI */ //DONE
 char* get_file_extension(char* uri);
@@ -84,8 +87,6 @@ char * getcontent_type_str(ContentType content_type);
 void parse_conf(){
     FILE* fp;
     char line[MAX_LINE_LENGTH];
-    int threads = 0;
-    int port = 0;
     char home[MAX_LINE_LENGTH];
 
     fp = fopen("server.conf", "r");
@@ -111,6 +112,7 @@ void parse_conf(){
             home[strcspn(home, "\n")] = 0;
         }
     }
+    webroot=home;
 
     fclose(fp);
 
@@ -128,13 +130,15 @@ char* get_file_extension(char* uri) {
 }
 
 /* Function to execute a script and capture output */
-int execute_script(char* script_name, char* output_buffer, int output_size) {
+int execute_script(char* file_path,RESPONSE* rspns) {
+    int output_size=1024;
+    char* output_buffer=(char*)(malloc(output_size*sizeof(char)));
     FILE *fp;
     int bytes_read = 0;
     char command[PATH_MAX];
 
     // Determine the file extension
-    char* file_ext = get_file_extension(script_name);
+    char* file_ext = get_file_extension(file_path);
 
     // Determine the interpreter command
     char* interpreter_command;
@@ -148,7 +152,7 @@ int execute_script(char* script_name, char* output_buffer, int output_size) {
     }
 
     // Construct the command to execute the script
-    snprintf(command, PATH_MAX, "%s %s", interpreter_command, script_name);
+    snprintf(command, PATH_MAX, "%s %s", interpreter_command, file_path);
 
     // Open a pipe to the script interpreter
     fp = popen(command, "r");
@@ -170,7 +174,10 @@ int execute_script(char* script_name, char* output_buffer, int output_size) {
             }
         }
     }
-    printf("%s", output_buffer);
+    rspns->status_code=200;
+    rspns->status_msg="OK";
+    rspns->body=output_buffer;
+    rspns->content_length=strlen(rspns->body);
     // Close the pipe
     pclose(fp);
 
@@ -279,6 +286,54 @@ void handle_request(SSL *socket, REQUEST *rqst, RESPONSE *rspns){
     // send_response(socket, rspns);
 }
 
+void handle_get(REQUEST *reqst,  RESPONSE *rspns ){
+    // Open the requested file
+    char* path = reqst->uri;
+    if (strcmp(path, "/") == 0) {
+        path = "/index.html";
+    }
+    char file_path[PATH_MAX];
+    snprintf(file_path, PATH_MAX, "%s%s", webroot, path);
+    FILE* file = fopen(file_path, "r");
+    if (file == NULL) {
+        rspns->status_code=404;
+        rspns->status_msg="Not Found";
+        return;
+    }
+
+    char* file_ext = get_file_extension(file_path);
+    rspns->content_type=getcontent_type_enum(file_ext);
+    // *** How we handle connection header? ***
+
+    if(strcmp(file_ext, "py") == 0 || strcmp(file_ext, "php") == 0){
+        execute_script(file_path,rspns);
+        return;
+    }
+
+    rspns->status_code=200;
+    rspns->status_msg="OK";
+     
+    // Determine the file's size
+    fseek(file, 0, SEEK_END);
+    size_t file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+
+
+    // Read file content
+    char buffer[1024];
+    size_t bytes_read;
+    while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+        // send_response_body(client_sock, buffer, bytes_read);
+        rspns->content_length+=bytes_read;
+        rspns->body = realloc(rspns->body, rspns->content_length);
+        snprintf(rspns->body,rspns->content_length, "%s%s", rspns->body, buffer);
+    }
+
+    // Close the file
+    fclose(file);
+}
+
 /*
 void handle_request(int client_sock, char* method, char* uri, char* http_version, char* user_agent, char* host, char* connection, char* content_type, char* post_data) {
     // Open the requested file
@@ -326,7 +381,6 @@ void handle_request(int client_sock, char* method, char* uri, char* http_version
     // Close the file
     fclose(file);
 }
-*/
 
 /* if return -1, invalid request */
 //TODO
@@ -521,8 +575,7 @@ char * get_content_type(char *ext){
 }
 
 int main(){
-    char* output_buffer=(char*)(malloc(5*sizeof(char)));
-    execute_script("../test.py",output_buffer,5);
+
     
     parse_conf();
     
