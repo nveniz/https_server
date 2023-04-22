@@ -89,6 +89,7 @@ Method getmethod_enum(char *buf);
 
 const char *getcontent_type_str(ContentType content_type);
 
+
 void parse_conf(){
     FILE* fp;
     char line[LINE_BUFSIZE];
@@ -124,6 +125,53 @@ void parse_conf(){
     printf("Threads: %d\n", threads);
     printf("Port: %d\n", port);
     printf("Home: %s\n", home);
+}
+
+
+char *get_status_msg(int status_code){
+    switch(status_code){
+        case 100: return "Continue";
+        case 101: return "Switching Protocols";
+        case 200: return "OK";
+        case 201: return "Created";
+        case 202: return "Accepted";
+        case 203: return "Non-Authoritative Information";
+        case 204: return "No Content";
+        case 205: return "Reset Content";
+        case 206: return "Partial Content";
+        case 300: return "Multiple Choices";
+        case 301: return "Moved Permanently";
+        case 302: return "Found";
+        case 303: return "See Other";
+        case 304: return "Not Modified";
+        case 305: return "Use Proxy";
+        case 307: return "Temporary Redirect";
+        case 400: return "Bad Request";
+        case 401: return "Unauthorized";
+        case 402: return "Payment Required";
+        case 403: return "Forbidden";
+        case 404: return "Not Found";
+        case 405: return "Method Not Allowed";
+        case 406: return "Not Acceptable";
+        case 407: return "Proxy Authentication Required";
+        case 408: return "Request Time-out";
+        case 409: return "Conflict";
+        case 410: return "Gone";
+        case 411: return "Length Required";
+        case 412: return "Precondition Failed";
+        case 413: return "Request Entity Too Large";
+        case 414: return "Request-URI Too Large";
+        case 415: return "Unsupported Media Type";
+        case 416: return "Requested range not satisfiable";
+        case 417: return "Expectation Failed";
+        case 500: return "Internal Server Error";
+        case 501: return "Not Implemented";
+        case 502: return "Bad Gateway";
+        case 503: return "Service Unavailable";
+        case 504: return "Gateway Time-out";
+        case 505: return "HTTP Version not supported";
+        default: return NULL;
+    }
 }
 
 char* get_file_extension(char* uri) {
@@ -182,7 +230,6 @@ int execute_script(char* file_path,RESPONSE* rspns) {
         }
     }
     rspns->status_code=200;
-    rspns->status_msg="OK";
     rspns->body=output_buffer;
     rspns->content_length=strlen(rspns->body);
     // Close the pipe
@@ -203,7 +250,7 @@ void send_response(SSL *socket, RESPONSE *rspns){
             "\r\nContent-Length: %d"
             "\r\nConnection: %s"
             "\r\nContent-Type: %s\r\n\r\n"
-            ,HTTP_VERSION, rspns->status_code, rspns->status_msg, rspns->content_length,  
+            ,HTTP_VERSION, rspns->status_code, get_status_msg(rspns->status_code), rspns->content_length,  
             (rspns->keep_alive == 1)?"keep-alive":"closed", getcontent_type_str(rspns->content_type));
 
 //    SSL_write(socket, buf, bufsize);
@@ -245,7 +292,6 @@ void handle_post(REQUEST *reqst,  RESPONSE *rspns ) {
     char* has_slash = strchr(reqst->uri, '/');
     if (has_slash == NULL) {
         rspns->status_code=400;
-        rspns->status_msg="Bad Request";
         rspns->body="Invalid URI";
         rspns->content_length=strlen("Invalid URI");
         rspns->content_type=plain;
@@ -266,7 +312,6 @@ void handle_post(REQUEST *reqst,  RESPONSE *rspns ) {
         *last_slash = '\0';
         if (mkdir(folder_path, S_IRWXU) == -1 && errno != EEXIST) {
             rspns->status_code=500;
-            rspns->status_msg="Internal Server Error";
             rspns->body="Failed to create directory";
             rspns->content_length=strlen("Failed to create directory");
             rspns->content_type=plain;
@@ -279,7 +324,6 @@ void handle_post(REQUEST *reqst,  RESPONSE *rspns ) {
     char* ext = get_file_extension(path);
     if (ext == NULL) {
         rspns->status_code=400;
-        rspns->status_msg="Bad Request";
         rspns->body="Invalid file extension";
         rspns->content_length=strlen("Invalid file extension");
         rspns->content_type=plain;
@@ -288,18 +332,16 @@ void handle_post(REQUEST *reqst,  RESPONSE *rspns ) {
     FILE *fp = fopen(path, "w");
     if (fp == NULL) {
         rspns->status_code=500;
-        rspns->status_msg="Internal Server Error";
         rspns->body="Failed to save file";
         rspns->content_length=strlen("Failed to save file");
         rspns->content_type=plain;
         return;
     }
-    fwrite(reqst->body, 1, reqst->content_length, fp);
+    fwrite(reqst->body, reqst->content_length, 1, fp);
     fclose(fp);
 
     // Send success response
     rspns->status_code=201;
-    rspns->status_msg="Created";
     rspns->body="File saved successfully";
     rspns->content_length=strlen("File saved successfully");
     rspns->content_type=plain;
@@ -319,7 +361,6 @@ void handle_get(REQUEST *reqst,  RESPONSE *rspns ){
     FILE* file = fopen(file_path, "r");
     if (file == NULL) {
         rspns->status_code=404;
-        rspns->status_msg="Not Found";
         rspns->content_type=plain;
         return;
     }
@@ -334,7 +375,6 @@ void handle_get(REQUEST *reqst,  RESPONSE *rspns ){
     }
 
     rspns->status_code=200;
-    rspns->status_msg="OK";
      
     // Determine the file's size
     fseek(file, 0, SEEK_END);
@@ -628,7 +668,7 @@ void print_response_struct (RESPONSE* rspns){
            "Content-Type: %s\n"
            "Content-Length:%d\n"
            "Body:%s\n",
-           rspns->status_code, rspns->status_msg, rspns->keep_alive, 
+           rspns->status_code, get_status_msg(rspns->status_code), rspns->keep_alive, 
            getcontent_type_str(rspns->content_type),rspns->content_length, rspns->body); 
 }
 
@@ -645,7 +685,7 @@ int main(){
 
     char post_request[] = "POST /test.txt HTTP/1.1"
                      "\r\nUser-Agent: My_web_browser"
-                     "\r\nContent-Length: 29"
+                     "\r\nContent-Length: 28"
                      "\r\nContent-Type: text/plain"
                      "\r\nHost: astarti.cs.ucy.ac.cy:30000"
                      "\r\nConnection: keep-alive"
