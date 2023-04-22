@@ -48,7 +48,11 @@ void parse_conf();
 /* Function to handle incoming clients */   //TODO LAST
 // void handle_client(QUEUE q);
 
+/* Prin functions for debugging */
 
+
+void print_response_struct (RESPONSE* rspns);
+void print_request_struct(REQUEST* reqst);
 
 /* Function to send HTTP response */        //TODO
 void send_response(SSL *socket, RESPONSE *rspns);
@@ -84,7 +88,7 @@ ContentType getcontent_type_enum(char *buf);
 
 Method getmethod_enum(char *buf);
 
-char *getcontent_type_str(ContentType content_type);
+const char *getcontent_type_str(ContentType content_type);
 
 void parse_conf(){
     FILE* fp;
@@ -190,8 +194,9 @@ int execute_script(char* file_path,RESPONSE* rspns) {
 void send_response(SSL *socket, RESPONSE *rspns){
     int bufsize = 1024;
     char buf[bufsize];
-
-
+    printf("-------------------Response struct----------------\n");
+    rspns->status_msg = NULL;
+    print_response_struct (rspns);
     snprintf(buf, bufsize, "%s %d %s"
             "\r\nServer: UCY-HTTPS-SERVER"
             "\r\nContent-Length: %d"
@@ -201,20 +206,30 @@ void send_response(SSL *socket, RESPONSE *rspns){
             (rspns->keep_alive == 1)?"keep-alive":"closed", getcontent_type_str(rspns->content_type));
 
 //    SSL_write(socket, buf, bufsize);
-    write(1, buf,bufsize);
-    if(rspns-> body != NULL){
-        SSL_write(socket, rspns->body, rspns->content_length);
-    }
+//    if(rspns-> body != NULL){
+//        SSL_write(socket, rspns->body, rspns->content_length);
+//    }
 
+    printf("-------------------Send response----------------\n");
+    write(1, buf,strlen(buf));
+
+    printf("-----------Body----------\n");
+    printf("%s\n", rspns->body);
+    printf("----\n");
+    write(1, rspns->body, strlen(rspns->body));
+    //rspns->content_length);
+    printf("------------------------------------------------\n");
 }
 
 void handle_request(SSL *socket, REQUEST *rqst, RESPONSE *rspns){
+    printf("-------------------Request struct----------------\n");
+    print_request_struct(rqst);
      switch(rqst->method){
          case GET:
              handle_get(rqst, rspns);
              break;
          case POST:
-      //       handle_post(rqst, rspns);
+             handle_post(rqst, rspns);
              break;
          case DELETE:
              handle_delete(rqst, rspns);
@@ -325,7 +340,7 @@ int handle_head(REQUEST *rqst, RESPONSE *rspns){
     
     if(rspns->body != NULL){
         free(rspns->body);
-        rspns->body == NULL;
+        rspns->body = NULL;
     }
 }
 
@@ -342,7 +357,7 @@ int handle_delete(REQUEST *rqst, RESPONSE *rspns){
         //if(errno == ENOENT ){
             rspns->status_code = 404;
 
-            char msg[] = " cannot be found on the server!\r\n";
+            char msg[] = " cannot be found on the server!";
             rspns->content_length = strlen(msg)+strlen(uri);
 
             rspns->body = realloc(rspns->body, sizeof(char)*(rspns->content_length));
@@ -360,7 +375,7 @@ int handle_delete(REQUEST *rqst, RESPONSE *rspns){
 
     rspns->status_code = 200;
     
-    char msg[] = " deleted successfully!\r\n";
+    char msg[] = " deleted successfully!";
     rspns->content_length = strlen(msg)+strlen(uri);
     
     rspns->body = realloc(rspns->body, sizeof(char)*(rspns->content_length));
@@ -439,6 +454,7 @@ int parse_request(char *request, REQUEST *reqst ){
         } else if (strncmp(token, "Content-Type: ", strlen("Content-Type: ")) == 0) {
             /* Get content type from string */
             reqst->content_type = getcontent_type_enum(token + strlen("Content-Type: "));
+            printf("Getcontent_type_str: %s\n", getcontent_type_str(reqst->content_type));
 
         } else if (strncmp(token, "Content-Length: ", strlen("Content-Length: ")) == 0) {
             errno = 0;
@@ -449,7 +465,7 @@ int parse_request(char *request, REQUEST *reqst ){
             }
         }
     }
-    ;
+    
     // Extract the post data for POST requests
     if(reqst->method == POST){
         if(reqst->content_type == unknown_con_type ){
@@ -513,7 +529,7 @@ ContentType getcontent_type_enum(char *buf){
     return other;
 }
 
-char * getcontent_type_str(ContentType content_type){
+const char *getcontent_type_str(ContentType content_type){
     switch(content_type){
         case html:
             return "text/html";
@@ -529,7 +545,7 @@ char * getcontent_type_str(ContentType content_type){
             return "image/gif";
         case pdf:
             return "application/pdf";
-       defult:
+       default:
             return "application/octet-stream";
     }
 }
@@ -574,13 +590,27 @@ ContentType get_content_type(char *ext){
         }
 }
 
-void print_request_struct(REQUEST* reqst){
+void print_request_struct (REQUEST* reqst){
     printf("Method: %d\n"
            "URI: %s\n"
            "Connection: %d\n"
+           "Content-Type: %s : %d\n"
            "Content-Length:%d\n"
-           "Body:%s\n",reqst->method,reqst->uri,reqst->keep_alive,reqst->content_length,reqst->body);
+           "Body:%s\n",
+           reqst->method,reqst->uri,reqst->keep_alive,
+           getcontent_type_str(reqst->content_type), reqst->content_type,reqst->content_length,reqst->body);
 }
+void print_response_struct (RESPONSE* rspns){
+    printf("Status code: %d\n"
+           "Status-Message: %s\n"
+           "Connection: %d\n"
+           "Content-Type: %s\n"
+           "Content-Length:%d\n"
+           "Body:%s\n",
+           rspns->status_code, rspns->status_msg, rspns->keep_alive, 
+           getcontent_type_str(rspns->content_type),rspns->content_length, rspns->body); 
+}
+
 
 int main(){
 
@@ -592,22 +622,28 @@ int main(){
 
     
 
-    char post_request[] = "POST ../test.py HTTP/1.1"
+    char post_request[] = "POST /test.txt HTTP/1.1"
                      "\r\nUser-Agent: My_web_browser"
-                     "\r\nContent-Length: 3"
-                     "\r\nContent-Type: txt/html"
+                     "\r\nContent-Length: 29"
+                     "\r\nContent-Type: text/plain"
                      "\r\nHost: astarti.cs.ucy.ac.cy:30000"
                      "\r\nConnection: keep-alive"
                      "\r\n"
-                     "\r\nhtml data";
+                     "\r\nThis is a test for HTTP POST";
 
 
-    char get_request[] = "GET / HTTP/1.1"
+    char get_request[] = "GET / HTTP/1.1" //Tested works
                       "\r\nUser-Agent: My_web_browser"
                       "\r\nHost: astarti.cs.ucy.ac.cy:30000"
                       "\r\nConnection: keep-alive"
                       "\r\n";
-    char head_request[] = "HEAD / HTTP/1.1"
+    char get_request_script[] = "GET /test.py HTTP/1.1" //Tested works
+                      "\r\nUser-Agent: My_web_browser"
+                      "\r\nHost: astarti.cs.ucy.ac.cy:30000"
+                      "\r\nConnection: keep-alive"
+                      "\r\n";
+
+    char head_request[] = "HEAD / HTTP/1.1" //Tested Works 
                       "\r\nUser-Agent: My_web_browser"
                       "\r\nHost: astarti.cs.ucy.ac.cy:30000"
                       "\r\nConnection: keep-alive"
@@ -618,13 +654,10 @@ int main(){
                       "\r\nConnection: keep-alive"
                       "\r\n";
 
-//    parse_request(head_request,reqst);
-//    
-//    print_request_struct(reqst);
-//    printf("---------------------------------------------------\n");
-//    handle_request(NULL, reqst, rspns);
+    parse_request(post_request,reqst);
+    handle_request(NULL, reqst, rspns);
 
-    printf("%s\n", getcontent_type_str(1));
+//    printf("%s\n", getcontent_type_str(1));
        
 }
 
