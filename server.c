@@ -41,16 +41,15 @@ typedef struct http_response{
 void parse_conf();
 
 /* Function to handle incoming clients */   //TODO LAST
-void handle_client(QUEUE q);
+// void handle_client(QUEUE q);
 
-/* Function to handle incoming requests */  //DONE
-void handle_request(SSL *socket, REQUEST *rqst, RESPONSE *rspns);
+
 
 /* Function to send HTTP response */        //TODO
 void send_response(SSL *socket, RESPONSE *rspns);
 
 /* Function to execute a script and capture output */ //DONE
-int execute_script(char* script_name, char* script_args, char* output_buffer, int output_size);
+int execute_script(char* script_name, char* output_buffer, int output_size);
 
 /* Function to extract the file extension from a URI */ //DONE
 char* get_file_extension(char* uri);
@@ -73,9 +72,14 @@ void handle_delete(REQUEST *reqst,  RESPONSE *rspns );
 /* Function to parse the client's request*/ //DONE
 int parse_request(char *request, REQUEST *rqst);
 
+/* Function to handle incoming requests */  //DONE
+void handle_request(SSL *socket, REQUEST *rqst, RESPONSE *rspns);
+
 ContentType getcontent_type_enum(char *buf);
 
 Method getmethod_enum(char *buf);
+
+char * getcontent_type_str(ContentType content_type);
 
 void parse_conf(){
     FILE* fp;
@@ -124,7 +128,7 @@ char* get_file_extension(char* uri) {
 }
 
 /* Function to execute a script and capture output */
-int execute_script(char* script_name, char* script_args, char* output_buffer, int output_size) {
+int execute_script(char* script_name, char* output_buffer, int output_size) {
     FILE *fp;
     int bytes_read = 0;
     char command[PATH_MAX];
@@ -144,11 +148,7 @@ int execute_script(char* script_name, char* script_args, char* output_buffer, in
     }
 
     // Construct the command to execute the script
-    if (script_args == NULL) {
-        snprintf(command, PATH_MAX, "%s %s", interpreter_command, script_name);
-    } else {
-        snprintf(command, PATH_MAX, "%s %s %s", interpreter_command, script_name, script_args);
-    }
+    snprintf(command, PATH_MAX, "%s %s", interpreter_command, script_name);
 
     // Open a pipe to the script interpreter
     fp = popen(command, "r");
@@ -183,13 +183,13 @@ void send_response(SSL *socket, RESPONSE *rspns){
     char buf[bufsize];
 
 
-    snprintf(buf, bufsize, "%s %s %s\
+    snprintf(buf, bufsize, "%s %d %s\
             \r\nServer: UCY-HTTPS-SERVER\
             \r\nContent-Length: %d\
             \r\nConnection: %s\
             \r\nContent-Type: %s\r\n\r\n"
             ,HTTP_VERSION, rspns->status_code, rspns->status_msg, rspns->content_length,  
-            (rspns->keep_alive == 1)?"keep-alive":"closed", rspns->content_type);
+            (rspns->keep_alive == 1)?"keep-alive":"closed", getcontent_type_str(rspns->content_type));
 
     SSL_write(socket, buf, bufsize);
     SSL_write(socket, rspns->body, rspns->content_length);
@@ -224,7 +224,7 @@ void send_response(SSL *socket, RESPONSE *rspns){
 
 
 void send_response_headers(int client_sock, char* response_headers) {
-    // Send the response headers to the client
+// Send the response headers to the client
 //    int bytes_sent = 0;
 //    int total_bytes_sent = 0;
 //    int response_length = strlen(response_headers);
@@ -262,26 +262,22 @@ void send_error_response(int client_sock, int status_code, char *message) {
 
 
 void handle_request(SSL *socket, REQUEST *rqst, RESPONSE *rspns){
-    switch(rqst->method){
-        case GET:
-            handle_get(rqst, rspns);
-            break;
-        case POST:
-            handle_post(rqst, rspns);
-            break;
-        case DELETE:
-            handle_delete(rqst, rspns);
-            break;
-        case HEAD:
-            handle_head(rqst, rspns);
-            break;
-    }
-    send_response(socket, rspns);
+    // switch(rqst->method){
+    //     case GET:
+    //         handle_get(rqst, rspns);
+    //         break;
+    //     case POST:
+    //         handle_post(rqst, rspns);
+    //         break;
+    //     case DELETE:
+    //         handle_delete(rqst, rspns);
+    //         break;
+    //     case HEAD:
+    //         handle_head(rqst, rspns);
+    //         break;
+    // }
+    // send_response(socket, rspns);
 }
-
-
-
-
 
 /*
 void handle_request(int client_sock, char* method, char* uri, char* http_version, char* user_agent, char* host, char* connection, char* content_type, char* post_data) {
@@ -419,7 +415,6 @@ int parse_request(char *request, REQUEST *reqst ){
 }
 
 
-
 int http_request_init(REQUEST** rqst){
     *rqst = (REQUEST *) malloc(sizeof(REQUEST));
     if (*rqst == NULL){
@@ -485,8 +480,6 @@ char * getcontent_type_str(ContentType content_type){
     }
 }
 
-
-
 char * get_content_type(char *ext){
         if(!strncmp(ext, ".txt", strlen(".txt")) ||
            !strncmp(ext, ".sed", strlen(".sed")) ||
@@ -529,7 +522,7 @@ char * get_content_type(char *ext){
 
 int main(){
     char* output_buffer=(char*)(malloc(5*sizeof(char)));
-    execute_script("../test.py",NULL,output_buffer,5);
+    execute_script("../test.py",output_buffer,5);
     
     parse_conf();
     
