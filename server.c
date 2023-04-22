@@ -469,26 +469,26 @@ int parse_request(char *request, REQUEST *reqst ){
 }
 
 
-int http_request_init(REQUEST** rqst){
-    *rqst = (REQUEST *) malloc(sizeof(REQUEST));
-    if (*rqst == NULL){
+int http_request_init(REQUEST* rqst){
+    rqst = (REQUEST *) malloc(sizeof(REQUEST));
+    if (rqst == NULL){
         return 1;
     }
-    (*rqst)->uri = (char *)malloc(sizeof(char)*URL_BUFSIZE);
-    if((*rqst)->uri == NULL){
+    (rqst)->uri = (char *)malloc(sizeof(char)*URL_BUFSIZE);
+    if((rqst)->uri == NULL){
         return 1;   
     }
-    (*rqst)->method = unknown_method;
-    (*rqst)->content_type = unknown_con_type;
-    (*rqst)->keep_alive = 1;
+    (rqst)->method = unknown_method;
+    (rqst)->content_type = unknown_con_type;
+    (rqst)->keep_alive = 1;
 
     return 0;
 
 }
 
-int http_response_init(RESPONSE** rspns){
-    *rspns = (RESPONSE*) malloc(sizeof(RESPONSE));
-    if ( *rspns == NULL){
+int http_response_init(RESPONSE* rspns){
+    rspns = (RESPONSE*) malloc(sizeof(RESPONSE));
+    if ( rspns == NULL){
         return 1;
     }
 }
@@ -588,6 +588,7 @@ int main(){
     // }
     
     // request[request_len] = '\0'; // add terminate character
+
 
     char request[] = "POST ../test.py HTTP/1.1\nUser-Agent: My_web_browser\nContent-Type: txt/html\nHost: astarti.cs.ucy.ac.cy:30000\nConnection: keep-alive\n\nhtml data";
     char method[16];
