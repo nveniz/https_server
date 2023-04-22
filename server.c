@@ -17,7 +17,7 @@
 
 #define HTTP_VERSION "HTTP/1.1"
 
-char* webroot;
+char* webroot="webroot/";
 int port;
 int threads;
 
@@ -192,16 +192,16 @@ void send_response(SSL *socket, RESPONSE *rspns){
     char buf[bufsize];
 
 
-    snprintf(buf, bufsize, "%s %d %s\
-            \r\nServer: UCY-HTTPS-SERVER\
-            \r\nContent-Length: %d\
-            \r\nConnection: %s\
-            \r\nContent-Type: %s\r\n\r\n"
+    snprintf(buf, bufsize, "%s %d %s"
+            "\r\nServer: UCY-HTTPS-SERVER"
+            "\r\nContent-Length: %d"
+            "\r\nConnection: %s"
+            "\r\nContent-Type: %s\r\n\r\n"
             ,HTTP_VERSION, rspns->status_code, rspns->status_msg, rspns->content_length,  
             (rspns->keep_alive == 1)?"keep-alive":"closed", getcontent_type_str(rspns->content_type));
 
-    SSL_write(socket, buf, bufsize);
-
+//    SSL_write(socket, buf, bufsize);
+    write(1, buf,bufsize);
     if(rspns-> body != NULL){
         SSL_write(socket, rspns->body, rspns->content_length);
     }
@@ -209,21 +209,21 @@ void send_response(SSL *socket, RESPONSE *rspns){
 }
 
 void handle_request(SSL *socket, REQUEST *rqst, RESPONSE *rspns){
-    // switch(rqst->method){
-    //     case GET:
-    //         handle_get(rqst, rspns);
-    //         break;
-    //     case POST:
-    //         handle_post(rqst, rspns);
-    //         break;
-    //     case DELETE:
-    //         handle_delete(rqst, rspns);
-    //         break;
-    //     case HEAD:
-    //         handle_head(rqst, rspns);
-    //         break;
-    // }
-    // send_response(socket, rspns);
+     switch(rqst->method){
+         case GET:
+             handle_get(rqst, rspns);
+             break;
+         case POST:
+      //       handle_post(rqst, rspns);
+             break;
+         case DELETE:
+             handle_delete(rqst, rspns);
+             break;
+         case HEAD:
+             handle_head(rqst, rspns);
+             break;
+     }
+     send_response(socket, rspns);
 }
 
 void handle_get(REQUEST *reqst,  RESPONSE *rspns ){
@@ -258,23 +258,15 @@ void handle_get(REQUEST *reqst,  RESPONSE *rspns ){
     rspns->content_length= ftell(file);
     fseek(file, 0, SEEK_SET);
   
-    rspns->body = realloc(rspns->body, rspns->content_length);
+    rspns->body = realloc(rspns->body, sizeof(char)*rspns->content_length);
     
-    int byte_read = fread(rspns->body, 1, sizeof(rspns->content_length), file);
-
-
-
-    // Read file content
-    char buffer[1024];
-    size_t bytes_read;
-    while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
-        // send_response_body(client_sock, buffer, bytes_read);
-        rspns->content_length+=bytes_read;
-        rspns->body = realloc(rspns->body, rspns->content_length);
-        snprintf(rspns->body,rspns->content_length, "%s%s", rspns->body, buffer);
+    int byte_read = fread(rspns->body, 1, sizeof(char)*rspns->content_length, file);
+    if(byte_read != rspns->content_length){
+        fprintf(stderr,"something is wrong!\n");
     }
 
-    // Close the file
+
+   // Close the file
     fclose(file);
 }
 
@@ -583,22 +575,16 @@ ContentType get_content_type(char *ext){
 }
 
 void print_request_struct(REQUEST* reqst){
-    printf("%d\n%s\n%d\n%d\n%s\n",reqst->method,reqst->uri,reqst->keep_alive,reqst->content_length,reqst->body);
+    printf("Method: %d\n"
+           "URI: %s\n"
+           "Connection: %d\n"
+           "Content-Length:%d\n"
+           "Body:%s\n",reqst->method,reqst->uri,reqst->keep_alive,reqst->content_length,reqst->body);
 }
 
 int main(){
 
-    
-    //  // Read the request data from the client socket
-    // int request_len = recv(client_sock, request, MAX_REQUEST_SIZE - 1, 0);
-    // if (request_len < 0) {
-    //     perror("recv failed");
-    //     close(client_sock);
-    //     return NULL;
-    // }
-    
-    // request[request_len] = '\0'; // add terminate character
-    REQUEST* reqst = (REQUEST *) malloc(sizeof(REQUEST));
+   REQUEST* reqst = (REQUEST *) malloc(sizeof(REQUEST));
     http_request_init(reqst);
 
     RESPONSE* rspns = (RESPONSE*) malloc(sizeof(RESPONSE));
@@ -606,23 +592,40 @@ int main(){
 
     
 
-    char request[] = "POST ../test.py HTTP/1.1\r\nUser-Agent: My_web_browser\r\nContent-Length: 3\r\nContent-Type: txt/html\r\nHost: astarti.cs.ucy.ac.cy:30000\r\nConnection: keep-alive\r\n\r\nhtml data";
-    parse_conf();
+    char post_request[] = "POST ../test.py HTTP/1.1"
+                     "\r\nUser-Agent: My_web_browser"
+                     "\r\nContent-Length: 3"
+                     "\r\nContent-Type: txt/html"
+                     "\r\nHost: astarti.cs.ucy.ac.cy:30000"
+                     "\r\nConnection: keep-alive"
+                     "\r\n"
+                     "\r\nhtml data";
 
-    // printf("%s",request);
-    parse_request(request,reqst);
-    print_request_struct(reqst);
 
+    char get_request[] = "GET / HTTP/1.1"
+                      "\r\nUser-Agent: My_web_browser"
+                      "\r\nHost: astarti.cs.ucy.ac.cy:30000"
+                      "\r\nConnection: keep-alive"
+                      "\r\n";
+    char head_request[] = "HEAD / HTTP/1.1"
+                      "\r\nUser-Agent: My_web_browser"
+                      "\r\nHost: astarti.cs.ucy.ac.cy:30000"
+                      "\r\nConnection: keep-alive"
+                      "\r\n";
+    char delete_request[] = "DELETE /delete.tmp HTTP/1.1"
+                      "\r\nUser-Agent: My_web_browser"
+                      "\r\nHost: astarti.cs.ucy.ac.cy:30000"
+                      "\r\nConnection: keep-alive"
+                      "\r\n";
 
+//    parse_request(head_request,reqst);
+//    
+//    print_request_struct(reqst);
+//    printf("---------------------------------------------------\n");
+//    handle_request(NULL, reqst, rspns);
 
-    
-    // Parse the request
-    // if (parse_result == -1) {
-    //     printf("Invalid request\n");
-    //     close(client_sock);
-    //     return NULL;
-    // }
-    
+    printf("%s\n", getcontent_type_str(1));
+       
 }
 
 
