@@ -60,7 +60,7 @@ int execute_script(char* file_path, RESPONSE* rspns);
 char* get_file_extension(char* uri);
 
 /* Function to generate an appropriate content type based on file extension */ //DONE
-char* get_content_type(char* file_ext);
+ContentType get_content_type(char* file_ext);
 
 /* Function to handle HTTP GET requests */ //TODO
 void handle_get(REQUEST *reqst,  RESPONSE *rspns );
@@ -69,10 +69,10 @@ void handle_get(REQUEST *reqst,  RESPONSE *rspns );
 void handle_post(REQUEST *reqst,  RESPONSE *rspns );
 
 /* Function to handle HTTP HEAD requests */ //TODO
-void handle_head(REQUEST *reqst,  RESPONSE *rspns );
+int handle_head(REQUEST *reqst,  RESPONSE *rspns );
 
 /* Function to handle HTTP DELETE requests */ //TODO
-void handle_delete(REQUEST *reqst,  RESPONSE *rspns );
+int handle_delete(REQUEST *reqst,  RESPONSE *rspns );
 
 /* Function to parse the client's request*/ //DONE
 int parse_request(char *request, REQUEST *rqst);
@@ -84,7 +84,7 @@ ContentType getcontent_type_enum(char *buf);
 
 Method getmethod_enum(char *buf);
 
-char * getcontent_type_str(ContentType content_type);
+char *getcontent_type_str(ContentType content_type);
 
 void parse_conf(){
     FILE* fp;
@@ -396,9 +396,7 @@ void handle_request(int client_sock, char* method, char* uri, char* http_version
 
 int handle_head(REQUEST *rqst, RESPONSE *rspns){
  
-    if(handle_get(rqst, rspsns)){
-
-    }
+    handle_get(rqst, rspns);
     
     if(rspns->body != NULL){
         free(rspns->body);
@@ -422,14 +420,14 @@ int handle_delete(REQUEST *rqst, RESPONSE *rspns){
             char msg[] = " cannot be found on the server!\r\n";
             rspns->content_length = strlen(msg)+strlen(uri);
 
-            realloc(rspns->body, sizeof(char)*(rspns->content_length));
+            rspns->body = realloc(rspns->body, sizeof(char)*(rspns->content_length));
             if(rspns->body == NULL){
                 perror("Not enough memory!");
                 return -1;
             }
             snprintf(rspns->body, rspns->content_length, "%s%s", uri, msg);
             rspns->content_type = plain;
-            rspns->connection = rqst->keep_alive;
+            rspns->keep_alive = rqst->keep_alive;
         //}
         perror("DELETE request");
         return -1;
@@ -438,16 +436,16 @@ int handle_delete(REQUEST *rqst, RESPONSE *rspns){
     rspns->status_code = 200;
     
     char msg[] = " deleted successfully!\r\n";
-    rspsn->content_length = strlen(msg)+strlen(uri);
+    rspns->content_length = strlen(msg)+strlen(uri);
     
-    realloc(rspns->body, sizeof(char)*(rspns->content_length));
+    rspns->body = realloc(rspns->body, sizeof(char)*(rspns->content_length));
     if(rspns->body == NULL){
         perror("Not enough memory!");
         return -1;
     }
     snprintf(rspns->body, rspns->content_length, "%s%s", uri, msg);
-    rspsn->content_type = plain;
-    rspsn->connection = rqst->keep_alive;
+    rspns->content_type = plain;
+    rspns->keep_alive = rqst->keep_alive;
     return 0;    
 }
 
@@ -611,7 +609,7 @@ char * getcontent_type_str(ContentType content_type){
     }
 }
 
-char * get_content_type(char *ext){
+ContentType get_content_type(char *ext){
         if(!strncmp(ext, ".txt", strlen(".txt")) ||
            !strncmp(ext, ".sed", strlen(".sed")) ||
            !strncmp(ext, ".awk", strlen(".awk")) ||
