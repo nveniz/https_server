@@ -6,15 +6,14 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <openssl/ssl.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 
 #define MAX_REQUEST_SIZE 1024 // maximum size of the HTTP request
 #define URL_BUFSIZE 512
 #define LINE_BUFSIZE 512
-
 #define PATH_BUFSIZE ( URL_BUFSIZE + LINE_BUFSIZE ) // maximum size of the HTTP request
-
-
 #define HTTP_VERSION "HTTP/1.1"
 
 char* webroot="webroot/";
@@ -245,8 +244,8 @@ void handle_request(SSL *socket, REQUEST *rqst, RESPONSE *rspns){
 
 void handle_post(REQUEST *reqst,  RESPONSE *rspns ) {
     // Extract path from uri
-    char* path = strchr(uri, '/');
-    if (path == NULL) {
+    char* has_slash = strchr(reqst->uri, '/');
+    if (has_slash == NULL) {
         rspns->status_code=400;
         rspns->status_msg="Bad Request";
         rspns->body="Invalid URI";
@@ -254,6 +253,13 @@ void handle_post(REQUEST *reqst,  RESPONSE *rspns ) {
         rspns->content_type=plain;
         return;
     }
+    
+
+    /* Append webroot directory to uri */
+    size_t path_len = strlen(webroot)+strlen(reqst->uri)+1;
+    char path[path_len];
+    snprintf(path, path_len, "%s%s", webroot, reqst->uri);
+
 
     // Create necessary folders if they do not exist
     char* folder_path = strdup(path);
@@ -272,10 +278,7 @@ void handle_post(REQUEST *reqst,  RESPONSE *rspns ) {
     }
     free(folder_path);
 
-    // Save post data to file with correct extension
-    char filename[FILE_BUFSIZE];
-    snprintf(filename, FILE_BUFSIZE, "%s", path);
-    char* ext = get_file_extension(filename);
+    char* ext = get_file_extension(path);
     if (ext == NULL) {
         rspns->status_code=400;
         rspns->status_msg="Bad Request";
@@ -284,8 +287,7 @@ void handle_post(REQUEST *reqst,  RESPONSE *rspns ) {
         rspns->content_type=plain;
         return;
     }
-    snprintf(filename, FILE_BUFSIZE, "%s%s", path, ext);
-    FILE* fp = fopen(filename, "w");
+    FILE *fp = fopen(path, "w");
     if (fp == NULL) {
         rspns->status_code=500;
         rspns->status_msg="Internal Server Error";
@@ -294,7 +296,7 @@ void handle_post(REQUEST *reqst,  RESPONSE *rspns ) {
         rspns->content_type=plain;
         return;
     }
-    fputs(post_data, fp);
+    fwrite(reqst->body, 1, reqst->content_length, fp);
     fclose(fp);
 
     // Send success response
@@ -312,8 +314,9 @@ void handle_get(REQUEST *reqst,  RESPONSE *rspns ){
     if (strcmp(path, "/") == 0) {
         path = "/index.html";
     }
-    char file_path[PATH_BUFSIZE];
-    snprintf(file_path, PATH_BUFSIZE, "%s%s", webroot, path);
+    size_t file_path_len = strlen(webroot)+strlen(path);
+    char file_path[file_path_len];
+    snprintf(file_path, file_path_len, "%s%s", webroot, path);
     FILE* file = fopen(file_path, "r");
     if (file == NULL) {
         rspns->status_code=404;
@@ -350,55 +353,6 @@ void handle_get(REQUEST *reqst,  RESPONSE *rspns ){
    // Close the file
     fclose(file);
 }
-
-/*
-void handle_request(int client_sock, char* method, char* uri, char* http_version, char* user_agent, char* host, char* connection, char* content_type, char* post_data) {
-    // Open the requested file
-    char* path = uri;
-    if (strcmp(path, "/") == 0) {
-        path = "/index.html";
-    }
-    char file_path[PATH_BUFSIZE];
-    // snprintf(file_path, PATH_BUFSIZE, "webroot%s", path);
-    FILE* file = fopen(path, "r");
-    if (file == NULL) {
-        printf("404 Not found");
-        // send_error_response(client_sock, 404, "Not Found");
-        return;
-    }
-
-    // Determine the file's size
-    fseek(file, 0, SEEK_END);
-    size_t file_size = ftell(file);
-    fseek(file, 0, SEEK_SET);
-
-    // TO-DO combine response headers in char* not char**
-    // // Set the response headers
-    // char content_length_header[64];
-    // snprintf(content_length_header, 64, "Content-Length: %lu", file_size);
-    // char* response_headers[] = {
-    //     "HTTP/1.1 200 OK",
-    //     "Content-Type: text/html",
-    //     content_length_header,
-    //     "Connection: close",
-    //     NULL
-    // };
-
-    // // Send the response headers
-    // send_response_headers(client_sock, response_headers);
-
-    // Send the file contents
-    char buffer[1024];
-    size_t bytes_read;
-    while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
-        // send_response_body(client_sock, buffer, bytes_read);
-        printf("%s",buffer);
-    }
-
-    // Close the file
-    fclose(file);
-}
-*/
 
 int handle_head(REQUEST *rqst, RESPONSE *rspns){
  
@@ -506,12 +460,9 @@ int parse_request(char *request, REQUEST *reqst ){
     }
 
     // Extract the User-Agent header
-    while (rest != NULL) {
-        token = strtok_r(rest, "\r\n", &rest);
+    do{
+        token = strtok_r(rest, "\n", &rest);
         
-        if (token == NULL || strcmp(token,"")==0) {
-            break; // no more headers
-        }
         if (strncmp(token, "Connection: ", strlen("Connection: ")) == 0) {
             /* If connection is not keep_alive */
             if(strncmp(token + strlen("Connection: "), "keep-alive", strlen("keep-alive")) != 0){
@@ -524,23 +475,29 @@ int parse_request(char *request, REQUEST *reqst ){
 
         } else if (strncmp(token, "Content-Length: ", strlen("Content-Length: ")) == 0) {
             errno = 0;
-            reqst->content_length = strtol(token+strlen("Content-Length: "), NULL, 2);
+            reqst->content_length = (int)strtol(token+strlen("Content-Length: "), NULL, 10);
+            printf("token = %d\n",reqst->content_length);
             if(errno != 0){
                 perror("Parsing content_length");
                 return -1;
             }
         }
-    }
-    
+
+        if (!strcmp(token,"\r")) {
+            break;
+        }
+        
+    }while(token != NULL);
+
     // Extract the post data for POST requests
     if(reqst->method == POST){
-        if(reqst->content_type == unknown_con_type ){
+        
+        if(reqst->content_type == unknown_con_type ||
+           rest == NULL){
             return -1;
         }
         reqst->body = (char *)malloc(sizeof(char)*reqst->content_length);
-        
-        char *body = strstr(request, "\r\n\r\n");
-        memcpy(reqst->body, body+2, reqst->content_length);
+        memcpy(reqst->body, rest, reqst->content_length);
     }
     // printf("%d\n",reqst->method);
     // printf("%s\n",reqst->uri);
@@ -548,7 +505,6 @@ int parse_request(char *request, REQUEST *reqst ){
     // printf("%s\n",getcontent_type_str(reqst->content_type));
     // printf("%d\n%s\n%d\n%s\n%d\n%s\n",reqst->method,reqst->uri,reqst->keep_alive,getcontent_type_str(reqst->content_type),reqst->content_length,reqst->body);
     
-    printf("token= %d\n",reqst->content_length);
     return 0;
 }
 
