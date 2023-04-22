@@ -9,9 +9,11 @@
 
 
 #define MAX_REQUEST_SIZE 1024 // maximum size of the HTTP request
-#define URL_BUFSIZE 256
-//#define PATH_MAX 512 // maximum size of the HTTP request
-#define MAX_LINE_LENGTH 50
+#define URL_BUFSIZE 512
+#define LINE_BUFSIZE 512
+
+#define PATH_BUFSIZE ( URL_BUFSIZE + LINE_BUFSIZE ) // maximum size of the HTTP request
+
 
 #define HTTP_VERSION "HTTP/1.1"
 
@@ -86,8 +88,8 @@ char * getcontent_type_str(ContentType content_type);
 
 void parse_conf(){
     FILE* fp;
-    char line[MAX_LINE_LENGTH];
-    char home[MAX_LINE_LENGTH];
+    char line[LINE_BUFSIZE];
+    char home[LINE_BUFSIZE];
 
     fp = fopen("server.conf", "r");
     if (fp == NULL) {
@@ -95,7 +97,7 @@ void parse_conf(){
         exit(1);
     }
 
-    while (fgets(line, MAX_LINE_LENGTH, fp) != NULL) {
+    while (fgets(line, LINE_BUFSIZE, fp) != NULL) {
         // Check if line is a comment or empty
         if (line[0] == '#' || strncmp(line, "\r\n", strlen("\r\n")) == 0) {
             continue;
@@ -135,7 +137,7 @@ int execute_script(char* file_path,RESPONSE* rspns) {
     char* output_buffer=(char*)(malloc(output_size*sizeof(char)));
     FILE *fp;
     int bytes_read = 0;
-    char command[PATH_MAX];
+    char command[PATH_BUFSIZE];
 
     // Determine the file extension
     char* file_ext = get_file_extension(file_path);
@@ -154,7 +156,7 @@ int execute_script(char* file_path,RESPONSE* rspns) {
     }
 
     // Construct the command to execute the script
-    snprintf(command, PATH_MAX, "%s %s", interpreter_command, file_path);
+    snprintf(command, PATH_BUFSIZE, "%s %s", interpreter_command, file_path);
 
     // Open a pipe to the script interpreter
     fp = popen(command, "r");
@@ -201,74 +203,12 @@ void send_response(SSL *socket, RESPONSE *rspns){
             (rspns->keep_alive == 1)?"keep-alive":"closed", getcontent_type_str(rspns->content_type));
 
     SSL_write(socket, buf, bufsize);
-    SSL_write(socket, rspns->body, rspns->content_length);
 
+    if(rspns-> body != NULL){
+        SSL_write(socket, rspns->body, rspns->content_length);
+    }
 
-
-
-
-//    //snprintf(response_headers, MAX_REQUEST_SIZE, "%s %s %s\nContent-Type: %s\nContent-Length: %d\nConnection: %s\n\n", http_version, status_code, status_msg, content_type, content_length, connection);
-
-
-
-
-
-
-//    char response_headers[MAX_REQUEST_SIZE];
-//    //snprintf(response_headers, MAX_REQUEST_SIZE, "%s %s %s\nContent-Type: %s\nContent-Length: %d\nConnection: %s\n\n", http_version, status_code, status_msg, content_type, content_length, connection);
-//    int headers_len = strlen(response_headers);
-//
-//    // Send headers
-//    if (send(client_sock, response_headers, headers_len, 0) < 0) {
-//        perror("Error sending response headers");
-//        return;
-//    }
-//
-//    // Send content
-//    if (content_length > 0 && send(client_sock, content, content_length, 0) < 0) {
-//        perror("Error sending response body");
-//        return;
-//    }
 }
-
-
-void send_response_headers(int client_sock, char* response_headers) {
-// Send the response headers to the client
-//    int bytes_sent = 0;
-//    int total_bytes_sent = 0;
-//    int response_length = strlen(response_headers);
-//
-//    while (total_bytes_sent < response_length) {
-//        bytes_sent = send(client_sock, response_headers + total_bytes_sent, response_length - total_bytes_sent, 0);
-//
-//        if (bytes_sent == -1) {
-//            perror("Error sending response headers");
-//            break;
-//        }
-//
-//        total_bytes_sent += bytes_sent;
-//    }
-}
-
-void send_response_body(int client_sock, char* buffer, int bytes_read) {
-//    int bytes_sent = 0;
-//    while (bytes_sent < bytes_read) {
-//        int result = send(client_sock, buffer + bytes_sent, bytes_read - bytes_sent, 0);
-//        if (result == -1) {
-//            perror("send");
-//            break;
-//        }
-//        bytes_sent += result;
-//    }
-}
-
-void send_error_response(int client_sock, int status_code, char *message) {
-//    char response[1024];
-//    sprintf(response, "HTTP/1.1 %d %s\r\nContent-Length: %ld\r\n\r\n%s",
-//            status_code, message, strlen(message), message);
-//    send(client_sock, response, strlen(response), 0);
-}
-
 
 void handle_request(SSL *socket, REQUEST *rqst, RESPONSE *rspns){
     // switch(rqst->method){
@@ -357,8 +297,8 @@ void handle_get(REQUEST *reqst,  RESPONSE *rspns ){
     if (strcmp(path, "/") == 0) {
         path = "/index.html";
     }
-    char file_path[PATH_MAX];
-    snprintf(file_path, PATH_MAX, "%s%s", webroot, path);
+    char file_path[PATH_BUFSIZE];
+    snprintf(file_path, PATH_BUFSIZE, "%s%s", webroot, path);
     FILE* file = fopen(file_path, "r");
     if (file == NULL) {
         rspns->status_code=404;
@@ -381,8 +321,12 @@ void handle_get(REQUEST *reqst,  RESPONSE *rspns ){
      
     // Determine the file's size
     fseek(file, 0, SEEK_END);
-    size_t file_size = ftell(file);
+    rspns->content_length= ftell(file);
     fseek(file, 0, SEEK_SET);
+  
+    rspns->body = realloc(rspns->body, rspns->content_length);
+    
+    int byte_read = fread(rspns->body, 1, sizeof(rspns->content_length), file);
 
 
 
@@ -408,8 +352,8 @@ void handle_request(int client_sock, char* method, char* uri, char* http_version
     if (strcmp(path, "/") == 0) {
         path = "/index.html";
     }
-    char file_path[PATH_MAX];
-    // snprintf(file_path, PATH_MAX, "webroot%s", path);
+    char file_path[PATH_BUFSIZE];
+    // snprintf(file_path, PATH_BUFSIZE, "webroot%s", path);
     FILE* file = fopen(path, "r");
     if (file == NULL) {
         printf("404 Not found");
@@ -447,6 +391,64 @@ void handle_request(int client_sock, char* method, char* uri, char* http_version
 
     // Close the file
     fclose(file);
+}
+*/
+
+int handle_head(REQUEST *rqst, RESPONSE *rspns){
+ 
+    if(handle_get(rqst, rspsns)){
+
+    }
+    
+    if(rspns->body != NULL){
+        free(rspns->body);
+        rspns->body == NULL;
+    }
+}
+
+int handle_delete(REQUEST *rqst, RESPONSE *rspns){
+    char *uri = rqst->uri;
+    char path[PATH_BUFSIZE];
+    if (strcmp(uri, "/") == 0) {
+        uri = "/index.html";
+    }
+    snprintf(path, PATH_BUFSIZE, "%s%s", webroot, uri);
+
+    if(remove(path)){
+        int errnum = errno;
+        //if(errno == ENOENT ){
+            rspns->status_code = 404;
+
+            char msg[] = " cannot be found on the server!\r\n";
+            rspns->content_length = strlen(msg)+strlen(uri);
+
+            realloc(rspns->body, sizeof(char)*(rspns->content_length));
+            if(rspns->body == NULL){
+                perror("Not enough memory!");
+                return -1;
+            }
+            snprintf(rspns->body, rspns->content_length, "%s%s", uri, msg);
+            rspns->content_type = plain;
+            rspns->connection = rqst->keep_alive;
+        //}
+        perror("DELETE request");
+        return -1;
+    }
+
+    rspns->status_code = 200;
+    
+    char msg[] = " deleted successfully!\r\n";
+    rspsn->content_length = strlen(msg)+strlen(uri);
+    
+    realloc(rspns->body, sizeof(char)*(rspns->content_length));
+    if(rspns->body == NULL){
+        perror("Not enough memory!");
+        return -1;
+    }
+    snprintf(rspns->body, rspns->content_length, "%s%s", uri, msg);
+    rspsn->content_type = plain;
+    rspsn->connection = rqst->keep_alive;
+    return 0;    
 }
 
 /* if return -1, invalid request */
@@ -616,36 +618,36 @@ char * get_content_type(char *ext){
            !strncmp(ext, ".c", strlen(".c")) ||
            !strncmp(ext, ".h", strlen(".h"))) {
             
-            return getcontent_type_str(plain);
+            return plain;
 
         } else if (!strncmp(ext, ".html", strlen(".html")) ||
             !strncmp(ext, ".htm", strlen(".htm"))) {
             
-            return getcontent_type_str(html);
+            return html;
 
         } else if (!strncmp(ext, ".php", strlen(".php"))) {
 
-            return getcontent_type_str(php);
+            return php;
 
         } else if (!strncmp(ext, ".py", strlen(".py"))){
 
-            return getcontent_type_str(python);
+            return python;
 
         } else if (!strncmp(ext, ".jpeg", strlen(".jpeg")) || 
             !strncmp(ext, ".jpg", strlen(".jpg"))){
 
-            return getcontent_type_str(jpeg);
+            return jpeg;
 
         } else if (!strncmp(ext, ".gif", strlen(".gif"))){
 
-            return getcontent_type_str(gif);
+            return gif;
 
         } else if (!strncmp(ext, ".pdf", strlen(".pdf"))){
 
-            return getcontent_type_str(pdf);
+            return pdf;
 
         } else {
-            return getcontent_type_str(other);
+            return other;
         }
 }
 
