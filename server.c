@@ -150,8 +150,10 @@ int execute_script(char* file_path,RESPONSE* rspns) {
     char* interpreter_command;
     if (strcmp(file_ext, "py") == 0) {
         interpreter_command = "python3";
+        rspns->content_type=plain;
     } else if (strcmp(file_ext, "php") == 0) {
         interpreter_command = "php";
+        rspns->content_type=html;
     } else {
         printf("Unsupported file extension\n");
         return -1; // Unsupported file extension
@@ -241,6 +243,69 @@ void handle_request(SSL *socket, REQUEST *rqst, RESPONSE *rspns){
      send_response(socket, rspns);
 }
 
+void handle_post(REQUEST *reqst,  RESPONSE *rspns ) {
+    // Extract path from uri
+    char* path = strchr(uri, '/');
+    if (path == NULL) {
+        rspns->status_code=400;
+        rspns->status_msg="Bad Request";
+        rspns->body="Invalid URI";
+        rspns->content_length=strlen("Invalid URI");
+        rspns->content_type=plain;
+        return;
+    }
+
+    // Create necessary folders if they do not exist
+    char* folder_path = strdup(path);
+    char* last_slash = strrchr(folder_path, '/');
+    if (last_slash != NULL) {
+        *last_slash = '\0';
+        if (mkdir(folder_path, S_IRWXU) == -1 && errno != EEXIST) {
+            rspns->status_code=500;
+            rspns->status_msg="Internal Server Error";
+            rspns->body="Failed to create directory";
+            rspns->content_length=strlen("Failed to create directory");
+            rspns->content_type=plain;
+            free(folder_path);
+            return;
+        }
+    }
+    free(folder_path);
+
+    // Save post data to file with correct extension
+    char filename[FILE_BUFSIZE];
+    snprintf(filename, FILE_BUFSIZE, "%s", path);
+    char* ext = get_file_extension(filename);
+    if (ext == NULL) {
+        rspns->status_code=400;
+        rspns->status_msg="Bad Request";
+        rspns->body="Invalid file extension";
+        rspns->content_length=strlen("Invalid file extension");
+        rspns->content_type=plain;
+        return;
+    }
+    snprintf(filename, FILE_BUFSIZE, "%s%s", path, ext);
+    FILE* fp = fopen(filename, "w");
+    if (fp == NULL) {
+        rspns->status_code=500;
+        rspns->status_msg="Internal Server Error";
+        rspns->body="Failed to save file";
+        rspns->content_length=strlen("Failed to save file");
+        rspns->content_type=plain;
+        return;
+    }
+    fputs(post_data, fp);
+    fclose(fp);
+
+    // Send success response
+    rspns->status_code=201;
+    rspns->status_msg="Created";
+    rspns->body="File saved successfully";
+    rspns->content_length=strlen("File saved successfully");
+    rspns->content_type=plain;
+}
+
+
 void handle_get(REQUEST *reqst,  RESPONSE *rspns ){
     // Open the requested file
     char* path = reqst->uri;
@@ -253,11 +318,12 @@ void handle_get(REQUEST *reqst,  RESPONSE *rspns ){
     if (file == NULL) {
         rspns->status_code=404;
         rspns->status_msg="Not Found";
+        rspns->content_type=plain;
         return;
     }
 
     char* file_ext = get_file_extension(file_path);
-    rspns->content_type=getcontent_type_enum(file_ext);
+    rspns->content_type=get_content_type(file_ext);
     // *** How we handle connection header? ***
 
     if(strcmp(file_ext, "py") == 0 || strcmp(file_ext, "php") == 0){
