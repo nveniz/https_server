@@ -385,28 +385,30 @@ void handle_request(int client_sock, char* method, char* uri, char* http_version
 /* if return -1, invalid request */
 //TODO
 int parse_request(char *request, REQUEST *reqst ){
+    
 
-    char* request_copy = (char*)(malloc(strlen(request)+1));
-    memcpy(request_copy,request,strlen(request)+1);
-    request_copy[strlen(request_copy)+1]='\0';
-    char *token;
-    char *rest = request_copy;
+    char *rest = strdup(request);
     int i = 0;
-
+     
     // Extract the method
-    token = strtok_r(rest, " ", &rest);
+    char *token = strtok_r(rest, " ", &rest);
+   
+
     if (token == NULL) {
         return -1; // invalid request
     }
 
     /* Get method */
     reqst->method = getmethod_enum(token);
+    
     if(reqst->method == unknown_method){
         return -1;
     }
+    
 
     /* Extract the URI */
     token = strtok_r(rest, " ", &rest);
+    
     if (token == NULL) {
         return -1; // invalid request
     }
@@ -416,10 +418,11 @@ int parse_request(char *request, REQUEST *reqst ){
         return -1;
     }
     memcpy(reqst->uri, token, strlen(token)+1); // copy the URI string
-
+    
 
     // Extract the HTTP version
-    token = strtok_r(rest, "\n", &rest);
+    token = strtok_r(rest, "\r\n", &rest);
+
     if (token == NULL) {
         return -1; // invalid request
     }
@@ -431,13 +434,14 @@ int parse_request(char *request, REQUEST *reqst ){
 
     // Extract the User-Agent header
     while (rest != NULL) {
-        token = strtok_r(rest, "\n", &rest);
-        if (*token == '\r') {
+        token = strtok_r(rest, "\r\n", &rest);
+        
+        if (token == NULL || strcmp(token,"")==0) {
             break; // no more headers
         }
         if (strncmp(token, "Connection: ", strlen("Connection: ")) == 0) {
             /* If connection is not keep_alive */
-            if(strncmp(token + strlen("Connection: "), "keep-alive", strlen("keep-alive"))){
+            if(strncmp(token + strlen("Connection: "), "keep-alive", strlen("keep-alive")) != 0){
                 reqst->keep_alive = 0;
             }
         } else if (strncmp(token, "Content-Type: ", strlen("Content-Type: ")) == 0) {
@@ -453,6 +457,7 @@ int parse_request(char *request, REQUEST *reqst ){
             }
         }
     }
+    ;
     // Extract the post data for POST requests
     if(reqst->method == POST){
         if(reqst->content_type == unknown_con_type ){
@@ -461,33 +466,36 @@ int parse_request(char *request, REQUEST *reqst ){
         reqst->body = (char *)malloc(sizeof(char)*reqst->content_length);
         
         char *body = strstr(request, "\r\n\r\n");
-        memcpy(reqst->body, body, reqst->content_length);
+        memcpy(reqst->body, body+2, reqst->content_length);
     }
-
-    free(request_copy); 
+    // printf("%d\n",reqst->method);
+    // printf("%s\n",reqst->uri);
+    // printf("%d\n",reqst->keep_alive);
+    // printf("%s\n",getcontent_type_str(reqst->content_type));
+    // printf("%d\n%s\n%d\n%s\n%d\n%s\n",reqst->method,reqst->uri,reqst->keep_alive,getcontent_type_str(reqst->content_type),reqst->content_length,reqst->body);
+    
+    printf("token= %d\n",reqst->content_length);
     return 0;
 }
 
 
 int http_request_init(REQUEST* rqst){
-    rqst = (REQUEST *) malloc(sizeof(REQUEST));
     if (rqst == NULL){
         return 1;
     }
-    (rqst)->uri = (char *)malloc(sizeof(char)*URL_BUFSIZE);
-    if((rqst)->uri == NULL){
+    rqst->uri = (char *)malloc(sizeof(char)*URL_BUFSIZE);
+    if(rqst->uri == NULL){
         return 1;   
     }
-    (rqst)->method = unknown_method;
-    (rqst)->content_type = unknown_con_type;
-    (rqst)->keep_alive = 1;
+    rqst->method = unknown_method;
+    rqst->content_type = unknown_con_type;
+    rqst->keep_alive = 1;
 
     return 0;
-
 }
 
+
 int http_response_init(RESPONSE* rspns){
-    rspns = (RESPONSE*) malloc(sizeof(RESPONSE));
     if ( rspns == NULL){
         return 1;
     }
@@ -574,10 +582,12 @@ char * get_content_type(char *ext){
         }
 }
 
+void print_request_struct(REQUEST* reqst){
+    printf("%d\n%s\n%d\n%d\n%s\n",reqst->method,reqst->uri,reqst->keep_alive,reqst->content_length,reqst->body);
+}
+
 int main(){
 
-    
-    parse_conf();
     
     //  // Read the request data from the client socket
     // int request_len = recv(client_sock, request, MAX_REQUEST_SIZE - 1, 0);
@@ -588,17 +598,23 @@ int main(){
     // }
     
     // request[request_len] = '\0'; // add terminate character
+    REQUEST* reqst = (REQUEST *) malloc(sizeof(REQUEST));
+    http_request_init(reqst);
+
+    RESPONSE* rspns = (RESPONSE*) malloc(sizeof(RESPONSE));
+    http_response_init(rspns);
+
+    
+
+    char request[] = "POST ../test.py HTTP/1.1\r\nUser-Agent: My_web_browser\r\nContent-Length: 3\r\nContent-Type: txt/html\r\nHost: astarti.cs.ucy.ac.cy:30000\r\nConnection: keep-alive\r\n\r\nhtml data";
+    parse_conf();
+
+    // printf("%s",request);
+    parse_request(request,reqst);
+    print_request_struct(reqst);
 
 
-    char request[] = "POST ../test.py HTTP/1.1\nUser-Agent: My_web_browser\nContent-Type: txt/html\nHost: astarti.cs.ucy.ac.cy:30000\nConnection: keep-alive\n\nhtml data";
-    char method[16];
-    char uri[256];
-    char http_version[16];
-    char user_agent[256];
-    char host[256];
-    char connection[256];
-    char content_type[16];
-    char post_data[1024];
+
     
     // Parse the request
     // if (parse_result == -1) {
