@@ -29,9 +29,9 @@ typedef struct http_request{
 } REQUEST;
 
 typedef struct http_response{
-    Method method;
     int status_code;
     char *status_msg;
+    int keep_alive;
     ContentType content_type;
     int content_length;
     char *body;
@@ -179,6 +179,32 @@ int execute_script(char* script_name, char* script_args, char* output_buffer, in
 
 
 void send_response(SSL *socket, RESPONSE *rspns){
+    int bufsize = 1024;
+    char buf[bufsize];
+
+
+    snprintf(buf, bufsize, "%s %s %s\
+            \r\nServer: UCY-HTTPS-SERVER\
+            \r\nContent-Length: %d\
+            \r\nConnection: %s\
+            \r\nContent-Type: %s\r\n\r\n"
+            ,HTTP_VERSION, rspns->status_code, rspns->status_msg, rspns->content_length,  
+            (rspns->keep_alive == 1)?"keep-alive":"closed", rspns->content_type);
+
+    SSL_write(socket, buf, bufsize);
+    SSL_write(socket, rspns->body, rspns->content_length);
+
+
+
+
+
+//    //snprintf(response_headers, MAX_REQUEST_SIZE, "%s %s %s\nContent-Type: %s\nContent-Length: %d\nConnection: %s\n\n", http_version, status_code, status_msg, content_type, content_length, connection);
+
+
+
+
+
+
 //    char response_headers[MAX_REQUEST_SIZE];
 //    //snprintf(response_headers, MAX_REQUEST_SIZE, "%s %s %s\nContent-Type: %s\nContent-Length: %d\nConnection: %s\n\n", http_version, status_code, status_msg, content_type, content_length, connection);
 //    int headers_len = strlen(response_headers);
@@ -361,7 +387,7 @@ int parse_request(char *request, REQUEST *reqst ){
         }
         if (strncmp(token, "Connection: ", strlen("Connection: ")) == 0) {
             /* If connection is not keep_alive */
-            if(strncmp(token + strlen("Connection: "), "keep_alive", strlen("keep_alive"))){
+            if(strncmp(token + strlen("Connection: "), "keep-alive", strlen("keep-alive"))){
                 reqst->keep_alive = 0;
             }
         } else if (strncmp(token, "Content-Type: ", strlen("Content-Type: ")) == 0) {
@@ -372,7 +398,7 @@ int parse_request(char *request, REQUEST *reqst ){
             errno = 0;
             reqst->content_length = strtol(token+strlen("Content-Length: "), NULL, 2);
             if(errno != 0){
-                perror("Parsing content-length");
+                perror("Parsing content_length");
                 return -1;
             }
         }
@@ -394,22 +420,26 @@ int parse_request(char *request, REQUEST *reqst ){
 
 
 
-int http_request_init(REQUEST* reqst){
-    reqst = (REQUEST *) malloc(sizeof(REQUEST));
-    if ( reqst == NULL){
+int http_request_init(REQUEST** rqst){
+    *rqst = (REQUEST *) malloc(sizeof(REQUEST));
+    if (*rqst == NULL){
         return 1;
     }
-    (*reqst)->uri = (char *)malloc(sizeof(char)*URL_BUFSIZE);
-    if((*reqst)->uri == NULL){
+    (*rqst)->uri = (char *)malloc(sizeof(char)*URL_BUFSIZE);
+    if((*rqst)->uri == NULL){
         return 1;   
     }
+    (*rqst)->method = unknown_method;
+    (*rqst)->content_type = unknown_con_type;
+    (*rqst)->keep_alive = 1;
+
     return 0;
 
 }
 
-int http_response_init(RESPONSE* rspns){
-    rspns = (RESPONSE*) malloc(sizeof(RESPONSE));
-    if ( rspns == NULL){
+int http_response_init(RESPONSE** rspns){
+    *rspns = (RESPONSE*) malloc(sizeof(RESPONSE));
+    if ( *rspns == NULL){
         return 1;
     }
 }
@@ -513,7 +543,7 @@ int main(){
     
     // request[request_len] = '\0'; // add terminate character
 
-    char request[] = "POST ../test.py HTTP/1.1\nUser-Agent: My_web_browser\nContent-Type: txt/html\nHost: astarti.cs.ucy.ac.cy:30000\nConnection: keep_alive\n\nhtml data";
+    char request[] = "POST ../test.py HTTP/1.1\nUser-Agent: My_web_browser\nContent-Type: txt/html\nHost: astarti.cs.ucy.ac.cy:30000\nConnection: keep-alive\n\nhtml data";
     char method[16];
     char uri[256];
     char http_version[16];
