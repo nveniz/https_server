@@ -1,5 +1,5 @@
-THREADS=123aaa
-PORT=3656
-HOME=test
+THREADS=123
+PORT=1818
+HOME=webroot
 CERTIFICATE=cert.pem
 KEY=key.pem
