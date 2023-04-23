@@ -1,32 +1,6 @@
-#include <stdio.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <openssl/ssl.h>
-#include <openssl/err.h>
-#include <string.h>
-#include <ctype.h>
-#include <dirent.h>
-#include <sys/types.h>
-
-
-
-
-#define LINE_BUFSIZE 512
-typedef struct{
-    char *home;
-    char *ca;
-    char *key;
-    int threads;
-    int port;
-}HTTPS_Config;
-
-typedef struct{
-   // REQUESTS *req;
-    HTTPS_Config *conf;
-}HTTPS_Server;
-
-
+#include "types.h"
+#include "requestQueue.h"
+#include "handleMessages.h"
 
 int create_socket(int port)
 {
@@ -99,23 +73,73 @@ SSL_CTX *create_context()
     return ctx;
 }
 
-void configure_context(SSL_CTX *ctx)
+void configure_context(SSL_CTX *ctx, char *cert, char *key)
 {
     SSL_CTX_set_ecdh_auto(ctx, 1);
 
     /* Set the key and cert using dedicated pem files */
-    if (SSL_CTX_use_certificate_file(ctx, "cert.pem", SSL_FILETYPE_PEM) <= 0) {
+    if (SSL_CTX_use_certificate_file(ctx, cert, SSL_FILETYPE_PEM) <= 0) {
         ERR_print_errors_fp(stderr);
 	exit(EXIT_FAILURE);
     }
 
-    if (SSL_CTX_use_PrivateKey_file(ctx, "key.pem", SSL_FILETYPE_PEM) <= 0 ) {
+    if (SSL_CTX_use_PrivateKey_file(ctx, key, SSL_FILETYPE_PEM) <= 0 ) {
         ERR_print_errors_fp(stderr);
 	exit(EXIT_FAILURE);
     }
 }
 
-HTTPS_Server *https_server_init(HTTPS_Config){
+HTTPS_Server *https_server_init(HTTPS_Config *conf){
+     if(conf == NULL){
+        fprintf(stderr, "https_server_init: HTTPS_Config object cannot be NULL!\n");
+	    exit(EXIT_FAILURE);
+    }
+
+    HTTPS_Server *server = (HTTPS_Server *)malloc(sizeof(HTTPS_Server));
+
+    if(server == NULL){
+        perror("https_server_init malloc:");
+	    exit(EXIT_FAILURE);
+    }
+
+    /* initialize OpenSSL */
+    init_openssl();
+
+    /* setting up algorithms needed by TLS */
+    SSL_CTX *ctx = create_context();
+
+    /* specify the certificate and private key to use */
+    configure_context(ctx, conf->cert, conf->key);
+    
+    /* Create server listening socket */
+    server->socket = create_socket(conf->port);
+      
+    /* Initialize requests queue */
+    requests_init(&server->req, ctx);
+    
+    server->conf = conf;
+    
+    return server;
+
+}
+
+
+void https_server_cleanup(HTTPS_Server *server){
+    /* Clean up requests queue */
+    requests_cleanup(server->req);
+    /* Close socket */
+    close(server->socket);
+    /* Cleanup openssl */
+    cleanup_openssl();
+    
+    /* Free config strings */
+    free(server->conf->home);
+    free(server->conf->cert);
+    free(server->conf->key);
+    
+    /* Free structures */
+    free(server->conf);
+    free(server);
 
 
 }
@@ -125,7 +149,7 @@ HTTPS_Config *https_config_read(char *configname){
     HTTPS_Config *conf = (HTTPS_Config*)malloc(sizeof(HTTPS_Config));
     if(conf == NULL){
         perror("http_config_read malloc:");
-        return NULL;
+	    exit(EXIT_FAILURE);
     }
 
 
@@ -133,7 +157,7 @@ HTTPS_Config *https_config_read(char *configname){
     char *line = (char *)malloc(sizeof(char)*LINE_BUFSIZE);
     if(line == NULL){
         perror("http_config_read malloc:");
-        return NULL;
+	    exit(EXIT_FAILURE);
     }
 
     FILE* fp;
@@ -161,7 +185,10 @@ HTTPS_Config *https_config_read(char *configname){
             conf->threads = strtol(str, &tmp, 10);
             if(strcmp(tmp,"\n\0")){
                 fprintf(stderr, "UCY-HTTPS: Config Syntax error: Line %d, THREADS must be a number. unknown: %s\n",count,str);
-                return NULL;
+            	exit(EXIT_FAILURE);
+            }else if(conf->threads <= 0){
+                fprintf(stderr, "UCY-HTTPS: Config Syntax error: Line %d, THREADS number is invalid.\n",count,str);
+	            exit(EXIT_FAILURE);
             }
 
         } else if (strncmp(line, "PORT", strlen("PORT")) == 0) {
@@ -171,10 +198,10 @@ HTTPS_Config *https_config_read(char *configname){
             conf->port = strtol(str, &tmp, 10);
             if(strcmp(tmp,"\n\0")){
                 fprintf(stderr, "UCY-HTTPS: Config Syntax error: Line %d, PORT must be a number. unknown: %s\n",count,str);
-                return NULL;
-            }else if(conf->port > 65535){
+            	exit(EXIT_FAILURE);
+            }else if(conf->port > 65535 || conf->port <= 0){
                 fprintf(stderr, "UCY-HTTPS: Config Syntax error: Line %d, PORT number is invalid.\n",count,str);
-                return NULL;
+	            exit(EXIT_FAILURE);
             }
 
         } else if (strncmp(line, "HOME", strlen("HOME")) == 0) {
@@ -184,7 +211,7 @@ HTTPS_Config *https_config_read(char *configname){
             conf->home = (char *)malloc(sizeof(char)*homelen);
             if(conf->home == NULL){
                 perror("http_config_read malloc:");
-                return NULL;
+	            exit(EXIT_FAILURE);
             }
             strcpy(conf->home, str);
             if(*(conf->home+homelen-1) == '\n') *(conf->home+homelen-1) = '\0';
@@ -195,27 +222,27 @@ HTTPS_Config *https_config_read(char *configname){
             } else if (ENOENT == errno) {
                 /* Directory does not exist. */
                 fprintf(stderr, "UCY-HTTPS: Config Directory Error: Line %d, %s\n",count,strerror(errno));
-                return NULL;
+            	exit(EXIT_FAILURE);
             }else {
                 /* opendir() failed for some other reason. */
                 fprintf(stderr, "UCY-HTTPS: Config Directory Error: Line %d, %s\n",count,strerror(errno));
-                return NULL;
+	            exit(EXIT_FAILURE);
             }
 
         } else if (strncmp(line, "CERTIFICATE", strlen("CERTIFICATE")) == 0) {
             char *str = strchr(line, '=') + 1;
             int len = strlen(str);
-            conf->ca = (char *)malloc(sizeof(char)*len);
-            if(conf->ca == NULL){
+            conf->cert = (char *)malloc(sizeof(char)*len);
+            if(conf->cert == NULL){
                 perror("http_config_read malloc:");
-                return NULL;
+            	exit(EXIT_FAILURE);
             }
-            strcpy(conf->ca, str);
-            if(*(conf->ca+len-1) == '\n') *(conf->ca+len-1) = '\0';
-            FILE *ftmp = fopen(conf->ca, "r");
+            strcpy(conf->cert, str);
+            if(*(conf->cert+len-1) == '\n') *(conf->cert+len-1) = '\0';
+            FILE *ftmp = fopen(conf->cert, "r");
             if(ftmp == NULL){
                 fprintf(stderr, "UCY-HTTPS: Config Certificate file Error: Line %d, %s\n",count,strerror(errno));
-                return NULL;
+	            exit(EXIT_FAILURE);
             }
             fclose(ftmp);
             
@@ -227,131 +254,137 @@ HTTPS_Config *https_config_read(char *configname){
             conf->key = (char *)malloc(sizeof(char)*len);
             if(conf->key == NULL){
                 perror("http_config_read malloc:");
-                return NULL;
+	            exit(EXIT_FAILURE);
             }
             strcpy(conf->key, str);
             if(*(conf->key+len-1) == '\n') *(conf->key+len-1) = '\0';
             FILE *ftmp = fopen(conf->key, "r");
             if(ftmp == NULL){
                 fprintf(stderr, "UCY-HTTPS: Config Key file Error: Line %d, %s\n",count,strerror(errno));
-                return NULL;
+            	exit(EXIT_FAILURE);
             }
             fclose(ftmp);
 
         } else {
             fprintf(stderr, "UCY-HTTPS: Config Syntax error: Line %d, Unknown option: %s\n",count,line);
-            return NULL;
+        	exit(EXIT_FAILURE);
         }
 
         count++;
     }
     fclose(fp);
+    return conf;
 
-    printf("Threads: %d\n", conf->threads);
-    printf("Port: %d\n", conf->port);
-    printf("Home: %s\n", conf->home);
+  //  printf("Threads: %d\n", conf->threads);
+  //  printf("Port: %d\n", conf->port);
+  //  printf("Home: %s\n", conf->home);
     
 }
+void *https_server_thread(void *srv){
+    HTTPS_Server *server = (HTTPS_Server *) srv;
+    int client;
+	SSL *ssl;
+    REQUEST *rqst;
+    RESPONSE *rspns;
+	/* Buf size is 8K */
+	int buf_size = 8192;
+	char *buf[buf_size];
 
+    int keep_alive = 1;
 
-int https_server(HTTPS_Server)
+    https_request_init(&rqst);
+    https_response_init(&rspns);
+
+	while(1){
+
+		requests_get(server->req, &client);
+        /* Creating the TLS handshake with the client fd and SSL_CTX */
+		ssl = SSL_new(server->req->ctx);
+		SSL_set_fd(ssl, client);
+        /* wait for a TLS/SSL client to initiate a TLS/SSL handshake */
+		if (SSL_accept(ssl) <= 0) {
+            send_response_msg(NULL, client, 525, strerror(errno));
+            keep_alive = 0;
+		}
+
+        /* if TLS/SSL handshake was successfully completed, a TLS/SSL
+		 * connection has been established
+		 */
+        while(keep_alive){
+
+            char *request;
+            int requestlen=0;
+            int ret = ssl_dyn_read(ssl, &request, &requestlen); 
+            switch (ret){
+                case -1:
+                    send_response_msg(ssl, 0, 413, "Server out of memoray");
+                case -2: 
+                    send_response_msg(ssl, 0, 500 , "SSL_read failed");
+            }
+		    /* Most http server implementation limit the header size
+		    * to 8K even though there is no limit in the RFC
+		    *
+		    * The buffer needs to be parsed as a header at first
+		    * in order to find the size of the HTTP body using
+		    * the Content-length in the header*/
+
+		    /* Parse the http request*/
+            parse_request(request, rqst);
+            
+		    /* Handle and respond to the request */
+		    handle_request(ssl, rqst, rspns, server->conf->home);    
+            keep_alive = rspns->keep_alive;
+
+        }
+		/* Close sockets after the HTTP close */
+        close(client);
+	}
+}
+
+int https_server(HTTPS_Server *server)
 {
- 
-     
-    int sock;
-    SSL_CTX *ctx;
-
-    /* initialize OpenSSL */
-    init_openssl();
-
-    /* Initialize queue */
-    //TODO
-
-    /* Parse Config file */
-    //TODO
-
-    /* setting up algorithms needed by TLS */
-    ctx = create_context();
-
-    /* specify the certificate and private key to use */
-    configure_context(ctx);
-
-    sock = create_socket(4433);
-
+    if(server == NULL){
+        fprintf(stderr,"https_server: HTTPS_Server not initialized!\n");
+        exit(EXIT_FAILURE);
+    }
     /* Create Threads */
-    //TODO
-
-
-
+    for(int i=0; i<server->conf->threads; i++){
+        pthread_t thread;
+        pthread_create(&thread, NULL, https_server_thread, server);
+    }
+    
     /* Handle connections */
     while(1) {
         struct sockaddr_in addr;
         uint len = sizeof(addr);
-        SSL *ssl;
-        const char reply[] = "test\n";
 	
-	/* Server accepts a new connection on a socket.
+	    /* Server accepts a new connection on a socket.
          * Server extracts the first connection on the queue 
          * of pending connections, create a new socket with the same 
          * socket type protocol and address family as the specified 
          * socket, and allocate a new file descriptor for that socket.
          */
-        int client = accept(sock, (struct sockaddr*)&addr, &len);
+        int client = accept(server->socket, (struct sockaddr*)&addr, &len);
         if (client < 0) {
             perror("Unable to accept");
             exit(EXIT_FAILURE);
         }
 
-	/* Add new client to the requests queue */
-	//TODO
-	
-
-
+	    /* Add new client to the requests queue */
+        requests_add(server->req, client);	
 
     }
-
-    close(sock);
-    SSL_CTX_free(ctx);
-    cleanup_openssl();
 }
-
-
-void https_server_thread(){
-
-/*----------------------This will be done in the thread function--------------------------
- *
- *         * creates a new SSL structure which is needed to hold the data 
- *         * for a TLS/SSL connection
- *         * 
- *        ssl = SSL_new(ctx);
- *        SSL_set_fd(ssl, client);
- *
- *        * wait for a TLS/SSL client to initiate a TLS/SSL handshake *
- *        if (SSL_accept(ssl) <= 0) {
- *            ERR_print_errors_fp(stderr);
- *        }
- *         * if TLS/SSL handshake was successfully completed, a TLS/SSL 
- *         * connection has been established
- *         *
- *        else {
- *             * writes num bytes from the buffer reply into the 
- *             * specified ssl connection
- *             *
- *            SSL_write(ssl, reply, strlen(reply));
- *        }
- *
- *	* close ssl connection *
- *	SSL_shutdown(ssl);
- *        * free an allocated SSL structure *
- *        SSL_free(ssl);
- *        close(client);
- *----------------------------------------------------------------------------------------*/
-
-}
-
-
 
 void main(){
-    https_config_read("config");
+    HTTPS_Config *conf = https_config_read("config");
+
+    HTTPS_Server *server = https_server_init(conf);
+
+    https_server(server);
+
+    https_server_cleanup(server);
+
+
 
 }
