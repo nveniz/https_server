@@ -16,6 +16,9 @@
 #define PATH_BUFSIZE ( URL_BUFSIZE + LINE_BUFSIZE ) // maximum size of the HTTP request
 #define HTTP_VERSION "HTTP/1.1"
 
+
+char *server_name = "UCY-HTTPS";
+
 char* webroot="webroot/";
 int port;
 int threads;
@@ -246,12 +249,13 @@ void send_response(SSL *socket, RESPONSE *rspns){
     rspns->status_msg = NULL;
     print_response_struct (rspns);
     snprintf(buf, bufsize, "%s %d %s"
-            "\r\nServer: UCY-HTTPS-SERVER"
+            "\r\nServer: %s"
             "\r\nContent-Length: %d"
             "\r\nConnection: %s"
-            "\r\nContent-Type: %s\r\n\r\n"
-            ,HTTP_VERSION, rspns->status_code, get_status_msg(rspns->status_code), rspns->content_length,  
-            (rspns->keep_alive == 1)?"keep-alive":"closed", getcontent_type_str(rspns->content_type));
+            "\r\nContent-Type: %s\r\n\r\n",
+            HTTP_VERSION, rspns->status_code, get_status_msg(rspns->status_code),server_name,
+            rspns->content_length,  (rspns->keep_alive == 1)?"keep-alive":"closed", 
+            getcontent_type_str(rspns->content_type));
 
 //    SSL_write(socket, buf, bufsize);
 //    if(rspns-> body != NULL){

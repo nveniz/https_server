@@ -1,0 +1,5 @@
+THREADS=123aaa
+PORT=3656
+HOME=test
+CERTIFICATE=cert.pem
+KEY=key.pem

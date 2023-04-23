@@ -30,16 +30,13 @@
  * has not been tested yet
  *
  */
-
-
-
 typedef struct{
 	struct Node *head;
 	struct Node *tail;
 	pthread_mutex_t mtx;
 	pthread_cond_t cond;
 	SSL_CTX *ctx;
-}QUEUE;
+}REQUESTS;
 
 typedef struct Node{
 	struct Node *next;
@@ -47,13 +44,13 @@ typedef struct Node{
 }NODE;
 
 
-int requests_empty(QUEUE *q){
+int requests_empty(REQUESTS *q){
 	return (q->head == NULL && q->tail == NULL)?1:0;
 }
 
 
-int queue_init(QUEUE **q, SSL_CTX *ctx){
-	*q = (QUEUE*)malloc(sizeof(QUEUE));
+int requests_init(REQUESTS **q, SSL_CTX *ctx){
+	*q = (REQUESTS*)malloc(sizeof(REQUESTS));
 	if(*q == NULL){
 		return 1;
 	}
@@ -69,7 +66,7 @@ int queue_init(QUEUE **q, SSL_CTX *ctx){
 	return 0;
 }
 
-int queue_add(QUEUE *q, int client_soc){
+int requests_add(REQUESTS *q, int client_soc){
 	/* Locking queue for concarency */
 	pthread_mutex_lock(&q->mtx);
 
@@ -81,7 +78,7 @@ int queue_add(QUEUE *q, int client_soc){
 	new->next = NULL;
 	new->socket = client_soc;
 
-	if(queue_empty(q)){
+	if(requests_empty(q)){
 		q->head = new;
 		q->tail = new;
 	}else {
@@ -97,7 +94,7 @@ int queue_add(QUEUE *q, int client_soc){
 	return 0;
 }
 
-void queue_get(QUEUE *q, int *socket){
+void requests_get(REQUESTS *q, int *socket){
 	pthread_mutex_lock(&q->mtx);
 
     	/* Wait for element to become available. */
@@ -119,7 +116,7 @@ void queue_get(QUEUE *q, int *socket){
 	pthread_mutex_unlock(&q->mtx);
 }
 
-void queue_print(QUEUE *q){
+void requests_print(REQUESTS *q){
 	NODE *tmp = q->head;
 	while(tmp != NULL){
 		printf("%d -> ",tmp->socket);
@@ -130,7 +127,7 @@ void queue_print(QUEUE *q){
 
 
 
-int thread_serve( QUEUE *q ){
+int thread_serve( REQUESTS *q ){
 
 	int client;
 	SSL *ssl;
@@ -140,7 +137,7 @@ int thread_serve( QUEUE *q ){
 	
 	while(1){
 
-		queue_get(q, &client);
+		requests_get(q, &client);
 
 		/* Creating the TLS handshake with the client fd and SSL_CTX */
 
@@ -183,28 +180,28 @@ int thread_serve( QUEUE *q ){
 
 #ifdef DEBUG
 void main(){
-	QUEUE *q;
-	queue_init(&q);
+	REQUESTS *q;
+	requests_init(&q);
 	int get;
 	for (int i=0; i<5;i++){
-		queue_add(q, i);
+		requests_add(q, i);
 	}
-	queue_print(q);
+	requests_print(q);
 
-	queue_get(q,&get);
+	requests_get(q,&get);
 	printf("Popped queue: %d\n", get);
-	queue_get(q,&get);
+	requests_get(q,&get);
 	printf("Popped queue: %d\n", get);
-	queue_add(q, 6);
-	queue_add(q, 7);
-	queue_print(q);
+	requests_add(q, 6);
+	requests_add(q, 7);
+	requests_print(q);
 	for (int i=0; i<4;i++){
-		queue_get(q, &get);
+		requests_get(q, &get);
 		printf("Popped queue: %d\n", get);
 	}
-	queue_print(q);
-	queue_add(q, 7);
-	queue_add(q, 7);
-	queue_print(q);
+	requests_print(q);
+	requests_add(q, 7);
+	requests_add(q, 7);
+	requests_print(q);
 }
 #endif
