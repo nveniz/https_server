@@ -378,7 +378,7 @@ int https_server(HTTPS_Server *server)
 }
 
 void main(){
-    HTTPS_Config *conf = https_config_read("config");
+    HTTPS_Config *conf = https_config_read("server.conf");
 
     HTTPS_Server *server = https_server_init(conf);
 
