@@ -17,6 +17,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include "errorHandling.h"
+
 #define MAX_REQUEST_SIZE 1024 // maximum size of the HTTP request
 #define URL_BUFSIZE 512
 #define LINE_BUFSIZE 512
@@ -73,5 +75,7 @@ typedef struct http_response{
     int content_length;
     char *body;
 } RESPONSE;
+
+
 
 #endif

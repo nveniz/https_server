@@ -24,9 +24,9 @@ void send_response_msg(SSL *socket, int client, int status_code, char *body);
 
 void send_response(SSL *socket, RESPONSE *rspns);
 
-int parse_request(char *request, REQUEST *reqst );    
+int parse_request(SSL *socket, char *request, REQUEST *reqst );    
 
-int execute_script(char* file_path,RESPONSE* rspns);
+int execute_script(SSL *socket, char* file_path,RESPONSE* rspns);
 
 void handle_request(SSL *socket, REQUEST *rqst, RESPONSE *rspns, char *webroot);
 
@@ -76,14 +76,14 @@ int ssl_dyn_read(SSL *ssl, char **buf, int *buf_len) {
         *buf_len += 1024;
         new_buf = realloc(*buf, *buf_len);
         if (!new_buf) {
-            fprintf(stderr, "ssl_dyn_read: Out of memory\n");
+            log_err_no(errno, "ssl_dyn_read realloc");
             return -1;
         }
         *buf = new_buf;
         // Read up to 1024 bytes from the SSL connection
         read_len = SSL_read(ssl, *buf + total_len, 1024);
         if (read_len <= 0) {
-            fprintf(stderr, "ssl_dyn_read: SSL_read failed\n");
+            log_err_no(errno,"ssl_dyn_read: SSL_read failed");
             return -2;
         }
         total_len += read_len;
@@ -278,6 +278,8 @@ void send_response_msg(SSL *socket, int client, int status_code, char *body){
     int bufsize = 2048;
     char buf[bufsize];
     int bodylen = strlen(body);
+
+
     snprintf(buf, bufsize, "%s %d %s"
             "\r\nServer: %s"
             "\r\nContent-Length: %d"
@@ -287,6 +289,7 @@ void send_response_msg(SSL *socket, int client, int status_code, char *body){
             bodylen,  "closed", 
             get_content_type_str(plain));
 
+    #ifndef debugHandleMessages
     if(socket != NULL){
         SSL_write(socket, buf, strlen(buf));
         if(body != NULL){
@@ -298,14 +301,28 @@ void send_response_msg(SSL *socket, int client, int status_code, char *body){
             write(client, body, bodylen);
         }
     }
+    snprintf(buf, bufsize,"RESPONSE: %d %s", 
+            status_code, get_status_msg(status_code));
+    log_msg(buf);
+    #else
+    printf("-------------------Response struct----------------\n");
+         write(1, buf, strlen(buf));
+        if(body !=NULL){
+            write(1, body, bodylen);
+        }
+    #endif
 
 }
 void send_response(SSL *socket, RESPONSE *rspns){
     int bufsize = 2048;
     char buf[bufsize];
+
+    #ifdef debugHandleMessages
     printf("-------------------Response struct----------------\n");
     rspns->status_msg = NULL;
     print_response_struct (rspns);
+    #endif
+
     snprintf(buf, bufsize, "%s %d %s"
             "\r\nServer: %s"
             "\r\nContent-Length: %d"
@@ -314,17 +331,22 @@ void send_response(SSL *socket, RESPONSE *rspns){
             HTTP_VERSION, rspns->status_code, get_status_msg(rspns->status_code),SERVER_NAME,
             rspns->content_length,  (rspns->keep_alive == 1)?"keep-alive":"closed", 
             get_content_type_str(rspns->content_type));
+ 
     #ifndef debugHandleMessages
     SSL_write(socket, buf, strlen(buf));
     if(rspns-> body != NULL){
         SSL_write(socket, rspns->body, rspns->content_length);
+
     }
+    snprintf(buf, bufsize, "RESPONSE: %d %s", 
+            rspns->status_code, get_status_msg(rspns->status_code));
+    log_msg(buf);
     #endif
 
 }
 
 
-int parse_request(char *request, REQUEST *reqst ){    
+int parse_request(SSL *socket,char *request, REQUEST *reqst ){    
 
     char *rest = strdup(request);
     int i = 0;
@@ -334,6 +356,8 @@ int parse_request(char *request, REQUEST *reqst ){
    
 
     if (token == NULL) {
+        
+        send_response_msg(socket,0, 400, "Not in the currect format");
         return -1; // invalid request
     }
 
@@ -341,6 +365,7 @@ int parse_request(char *request, REQUEST *reqst ){
     reqst->method = get_method_enum(token);
     
     if(reqst->method == unknown_method){
+        send_response_msg(socket,0, 501, "This method is not supported by the server");
         return -1;
     }
     
@@ -349,11 +374,12 @@ int parse_request(char *request, REQUEST *reqst ){
     token = strtok_r(rest, " ", &rest);
     
     if (token == NULL) {
+        send_response_msg(socket,0, 400, "Not in the currect format");
         return -1; // invalid request
     }
 
     if(strlen(token)+1 > URL_BUFSIZE){
-        fprintf(stderr,"URL bigger than bufsize!\n");
+        send_response_msg(socket,0, 414, "URI too large for the server");
         return -1;
     }
     memcpy(reqst->uri, token, strlen(token)+1); // copy the URI string
@@ -363,11 +389,13 @@ int parse_request(char *request, REQUEST *reqst ){
     token = strtok_r(rest, "\r\n", &rest);
 
     if (token == NULL) {
+        send_response_msg(socket,0, 400, "Not in the currect format");
         return -1; // invalid request
     }
     // Check that the HTTP version is valid
     if (strncmp(token, "HTTP/1.1", strlen("HTTP/1.1"))) {
         
+        send_response_msg(socket,0, 505, "Unsupported HTTP version");
         return -1; // invalid request
     }
 
@@ -387,10 +415,17 @@ int parse_request(char *request, REQUEST *reqst ){
 
         } else if (strncmp(token, "Content-Length: ", strlen("Content-Length: ")) == 0) {
             errno = 0;
-            reqst->content_length = (int)strtol(token+strlen("Content-Length: "), NULL, 10);
-            printf("token = %d\n",reqst->content_length);
+            char *tmp;
+            reqst->content_length = (int)strtol(token+strlen("Content-Length: "), &tmp, 10);
+            if(*tmp != '\0'){
+                send_response_msg(socket,0, 400, "Not in the currect format");
+                return -1;
+            }
             if(errno != 0){
-                perror("Parsing content_length");
+                 
+                send_response_msg(socket,0, 500, "Parsing content length");
+                log_err_no(errno,"HEADER parsing content length");
+
                 return -1;
             }
         }
@@ -406,16 +441,17 @@ int parse_request(char *request, REQUEST *reqst ){
         
         if(reqst->content_type == unknown_con_type ||
            rest == NULL){
-            return -1;
+           send_response_msg(socket,0, 415, "Media type is not support");
+           return -1;
         }
-        reqst->body = (char *)malloc(sizeof(char)*reqst->content_length);
+        reqst->body = (char *)realloc(reqst->body ,sizeof(char)*reqst->content_length);
         memcpy(reqst->body, rest, reqst->content_length);
     }
     return 0;
 }
 
 /* Function to execute a script and capture output */
-int execute_script(char* file_path,RESPONSE* rspns) {
+int execute_script(SSL *socket, char* file_path,RESPONSE* rspns) {
     int output_size=1024;
     char* output_buffer=(char*)(malloc(output_size*sizeof(char)));
     FILE *fp;
@@ -433,9 +469,6 @@ int execute_script(char* file_path,RESPONSE* rspns) {
     } else if (strcmp(file_ext, ".php") == 0) {
         interpreter_command = "php";
         rspns->content_type=html;
-    } else {
-        printf("Unsupported file extension\n");
-        return -1; // Unsupported file extension
     }
 
     // Construct the command to execute the script
@@ -444,6 +477,8 @@ int execute_script(char* file_path,RESPONSE* rspns) {
     // Open a pipe to the script interpreter
     fp = popen(command, "r");
     if (fp == NULL) {
+        log_err_no(errno,"GET script execution");
+        send_response_msg(socket, 0, 500, "Failed to execute script");       
         return -1; // Error opening pipe
     }
 
@@ -456,6 +491,8 @@ int execute_script(char* file_path,RESPONSE* rspns) {
             output_size *= 2;
             output_buffer = realloc(output_buffer, output_size);
             if (output_buffer == NULL) {
+                log_err_no(errno,"GET script execution");
+                send_response_msg(socket, 0, 500, "Failed to allocate memory");       
                 pclose(fp);
                 return -1; // Error reallocating buffer
             }
@@ -471,34 +508,39 @@ int execute_script(char* file_path,RESPONSE* rspns) {
 }
 
 void handle_request(SSL *socket, REQUEST *rqst, RESPONSE *rspns, char *webroot){
+    #ifdef debugHandleMessages 
     printf("-------------------Request struct----------------\n");
     print_request_struct(rqst);
+    #else
+    char buf[1024];
+    sprintf(buf, "REQUEST: %s %s", get_method_str(rqst->method),rqst->uri);
+    log_msg(buf);
+    #endif
+    int ret = 1;
     rspns->keep_alive=rqst->keep_alive;
-     switch(rqst->method){
-         case GET:
-             handle_get(socket, rqst, rspns, webroot);
-             break;
-         case POST:
-             handle_post(socket, rqst, rspns, webroot);
-             break;
-         case DELETE:
-             handle_delete(socket, rqst, rspns, webroot);
-             break;
-         case HEAD:
-             handle_head(socket, rqst, rspns, webroot);
-             break;
-     }
-     send_response(socket, rspns);
+    switch(rqst->method){
+        case GET:
+            ret = handle_get(socket, rqst, rspns, webroot);
+            break;
+        case POST:
+            ret = handle_post(socket, rqst, rspns, webroot);
+            break;
+        case DELETE:
+            ret = handle_delete(socket, rqst, rspns, webroot);
+            break;
+        case HEAD:
+            ret = handle_head(socket, rqst, rspns, webroot);
+            break;
+    }
+     if(!ret)
+        send_response(socket, rspns);
 }
 
 int handle_post(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot) {
     // Extract path from uri
     char* has_slash = strchr(reqst->uri, '/');
     if (has_slash == NULL) {
-        rspns->status_code=400;
-        rspns->body="Invalid URI";
-        rspns->content_length=strlen("Invalid URI");
-        rspns->content_type=plain;
+        send_response_msg(socket, 0, 400, "Invalid URI");
         return -1;
     }
     
@@ -515,11 +557,8 @@ int handle_post(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot) {
     if (last_slash != NULL) {
         *last_slash = '\0';
         if (mkdir(folder_path, S_IRWXU) == -1 && errno != EEXIST) {
-            rspns->status_code=500;
-            rspns->body="Failed to create directory";
-            rspns->content_length=strlen("Failed to create directory");
-            rspns->content_type=plain;
-            free(folder_path);
+            log_err_no(errno, "POST mkdir");
+            send_response_msg(socket, 0, 500, "Failed to create directory");       
             return -1;
         }
     }
@@ -527,18 +566,13 @@ int handle_post(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot) {
 
     char* ext = get_file_extension(path);
     if (ext == NULL) {
-        rspns->status_code=400;
-        rspns->body="Invalid file extension";
-        rspns->content_length=strlen("Invalid file extension");
-        rspns->content_type=plain;
+        send_response_msg(socket, 0, 400, "Invalid file extention");       
         return -1;
     }
     FILE *fp = fopen(path, "w");
     if (fp == NULL) {
-        rspns->status_code=500;
-        rspns->body="Failed to save file";
-        rspns->content_length=strlen("Failed to save file");
-        rspns->content_type=plain;
+        log_err_no(errno, "POST fopen");
+        send_response_msg(socket, 0, 500, "Failed to save file");       
         return -1;
     }
     fwrite(reqst->body, reqst->content_length, 1, fp);
@@ -546,16 +580,15 @@ int handle_post(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot) {
 
     // Send success response
     char msg[] = "File saved successfully!";
-    rspns->content_length = strlen(msg)+strlen(path);
-    
-    rspns->body = realloc(rspns->body, sizeof(char)*(rspns->content_length));
+    rspns->content_length = strlen(msg)+strlen(path)+1;
+    rspns->body = (char *)realloc(rspns->body, sizeof(char)*rspns->content_length);
     if(rspns->body == NULL){
-        perror("Not enough memory!");
+        log_err_no(errno, "POST realloc");
+        send_response_msg(socket, 0, 500, "Failed to allocate memory");
         return -1;
     }
     snprintf(rspns->body, rspns->content_length, "%s%s", path, msg);
     rspns->status_code=201;
-    rspns->body="File saved successfully";
     rspns->content_type=plain;
     return 0;
 }
@@ -576,15 +609,16 @@ int handle_get(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot){
         send_response_msg(socket, 0, 404, "Page not found!\n");
         return -1;
     }
-    printf("PATH is: %s", file_path);
     char* file_ext = get_file_extension(file_path);
-    printf("EXT is: %s\n", file_ext);
+    if (file_ext == NULL) {
+        send_response_msg(socket, 0, 400, "Invalid file extention");       
+        return -1;
+    }
     rspns->content_type=get_content_type(file_ext);
     // *** How we handle connection header? ***
 
     if(strcmp(file_ext, ".py") == 0 || strcmp(file_ext, ".php") == 0){
-        execute_script(file_path,rspns);
-        return -1;
+        return execute_script(socket, file_path,rspns);
     }
 
     rspns->status_code=200;
@@ -596,13 +630,20 @@ int handle_get(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot){
   
     rspns->body = realloc(rspns->body, sizeof(char)*rspns->content_length);
     if(rspns->body == NULL){
-        perror("Not enough memory!");
+        char buf[100];
+        sprintf(buf,"%s realloc",get_method_str(reqst->method));
+        log_err_no(errno, buf);
+        send_response_msg(socket, 0, 500, "Failed to allocate memory");
         return -1;
     }
     
     int byte_read = fread(rspns->body, 1, sizeof(char)*rspns->content_length, file);
     if(byte_read != rspns->content_length){
-        fprintf(stderr,"something is wrong!\n");
+        char buf[100];
+        sprintf(buf,"%s fread: bytes read not equal content length",get_method_str(reqst->method));
+        log_err(buf);
+        send_response_msg(socket, 0, 500, "Failed to read file");
+        return -1;
     }
 
 
@@ -630,23 +671,14 @@ int handle_delete(SSL *socket, REQUEST *rqst, RESPONSE *rspns, char *webroot){
     snprintf(path, PATH_BUFSIZE, "%s%s", webroot, uri);
 
     if(remove(path)){
-        int errnum = errno;
-        //if(errno == ENOENT ){
-            rspns->status_code = 404;
+        
 
-            char msg[] = " cannot be found on the server!";
-            rspns->content_length = strlen(msg)+strlen(uri);
+        if(errno == ENOENT ){
+            send_response_msg(socket, 0, 404, "Failed cannot be found");
 
-            rspns->body = realloc(rspns->body, sizeof(char)*(rspns->content_length));
-            if(rspns->body == NULL){
-                perror("Not enough memory!");
-                return -1;
-            }
-            snprintf(rspns->body, rspns->content_length, "%s%s", uri, msg);
-            rspns->content_type = plain;
-            rspns->keep_alive = rqst->keep_alive;
-        //}
-        perror("DELETE request");
+        } else{
+            send_response_msg(socket, 0, 400, strerror(errno));
+        }
         return -1;
     }
 
@@ -657,7 +689,8 @@ int handle_delete(SSL *socket, REQUEST *rqst, RESPONSE *rspns, char *webroot){
     
     rspns->body = realloc(rspns->body, sizeof(char)*(rspns->content_length));
     if(rspns->body == NULL){
-        perror("Not enough memory!");
+        log_err_no(errno, "DELETE realloc");
+        send_response_msg(socket, 0, 500, "Failed to allocate memory");
         return -1;
     }
     snprintf(rspns->body, rspns->content_length, "%s%s", uri, msg);

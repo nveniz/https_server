@@ -317,7 +317,7 @@ void *https_server_thread(void *srv){
             int ret = ssl_dyn_read(ssl, &request, &requestlen); 
             switch (ret){
                 case -1:
-                    send_response_msg(ssl, 0, 413, "Server out of memoray");
+                    send_response_msg(ssl, 0, 413, "Server out of memory");
                 case -2: 
                     send_response_msg(ssl, 0, 500 , "SSL_read failed");
             }
@@ -329,11 +329,12 @@ void *https_server_thread(void *srv){
 		    * the Content-length in the header*/
 
 		    /* Parse the http request*/
-            parse_request(request, rqst);
+            if(!parse_request(ssl, request, rqst)){
             
-		    /* Handle and respond to the request */
-		    handle_request(ssl, rqst, rspns, server->conf->home);    
-            keep_alive = rspns->keep_alive;
+		        /* Handle and respond to the request */
+		        handle_request(ssl, rqst, rspns, server->conf->home);    
+                keep_alive = rspns->keep_alive;
+            }
 
         }
 		/* Close sockets after the HTTP close */
