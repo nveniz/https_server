@@ -187,7 +187,7 @@ HTTPS_Config *https_config_read(char *configname){
                 fprintf(stderr, "UCY-HTTPS: Config Syntax error: Line %d, THREADS must be a number. unknown: %s\n",count,str);
             	exit(EXIT_FAILURE);
             }else if(conf->threads <= 0){
-                fprintf(stderr, "UCY-HTTPS: Config Syntax error: Line %d, THREADS number is invalid.\n",count,str);
+                fprintf(stderr, "UCY-HTTPS: Config Syntax error: Line %d, THREADS number is invalid: %s\n",count,str);
 	            exit(EXIT_FAILURE);
             }
 
@@ -200,7 +200,7 @@ HTTPS_Config *https_config_read(char *configname){
                 fprintf(stderr, "UCY-HTTPS: Config Syntax error: Line %d, PORT must be a number. unknown: %s\n",count,str);
             	exit(EXIT_FAILURE);
             }else if(conf->port > 65535 || conf->port <= 0){
-                fprintf(stderr, "UCY-HTTPS: Config Syntax error: Line %d, PORT number is invalid.\n",count,str);
+                fprintf(stderr, "UCY-HTTPS: Config Syntax error: Line %d, PORT number is invalid: %s\n",count,str);
 	            exit(EXIT_FAILURE);
             }
 
