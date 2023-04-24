@@ -43,13 +43,11 @@ char * get_method_str(Method method);
 int https_request_init(REQUEST** rqst){
     *rqst = (REQUEST *) malloc(sizeof(REQUEST));
     if ((*rqst) == NULL){
-        //TODO
-        return 1;
+        return -1;
     }
     (*rqst)->uri = (char *)malloc(sizeof(char)*URL_BUFSIZE);
     if((*rqst)->uri == NULL){
-        //TODO
-        return 1;   
+        return -1;   
     }
     (*rqst)->method = unknown_method;
     (*rqst)->content_type = unknown_con_type;
@@ -76,14 +74,18 @@ int ssl_dyn_read(SSL *ssl, char **buf, int *buf_len) {
         *buf_len += 1024;
         new_buf = realloc(*buf, *buf_len);
         if (!new_buf) {
+            #ifndef debugHandleMessages
             log_err_no(errno, "ssl_dyn_read realloc");
+            #endif
             return -1;
         }
         *buf = new_buf;
         // Read up to 1024 bytes from the SSL connection
         read_len = SSL_read(ssl, *buf + total_len, 1024);
         if (read_len <= 0) {
+            #ifndef debugHandleMessages
             log_err_no(errno,"ssl_dyn_read: SSL_read failed");
+            #endif
             return -2;
         }
         total_len += read_len;
@@ -255,23 +257,25 @@ void print_request_struct (REQUEST* reqst){
            get_content_type_str(reqst->content_type),reqst->content_length,reqst->body);
 }
 
-void print_response_struct (RESPONSE* rspns){
-//    printf("Status code: %d\n"
-//           "Status-Message: %s\n"
-//           "Connection: %s\n"
-//           "Content-Type: %s\n"
-//           "Content-Length:%d\n"
-//           "Body:%s\n",
-//           rspns->status_code, get_status_msg(rspns->status_code), (rspns->keep_alive == 1)?"keep-alive":"closed", 
-//           get_content_type_str(rspns->content_type),rspns->content_length, rspns->body); 
+int is_str_space(char * str){
+    char *tmp = str;
+    while(*tmp !='\0'){
+        if(!isspace(*tmp))
+            return 0;
+        tmp++;
+    }
+    return 0;
+}
 
-     printf("Status code: %d\n"
+void print_response_struct (RESPONSE* rspns){
+    printf("Status code: %d\n"
            "Status-Message: %s\n"
-           "Connection: %d\n"
+           /"Connection: %s\n"
            "Content-Type: %s\n"
-           "Content-Length:%d\n",
-           rspns->status_code, get_status_msg(rspns->status_code), rspns->keep_alive, 
-           get_content_type_str(rspns->content_type),rspns->content_length); 
+           "Content-Length:%d\n"
+           "Body:%s\n",
+           rspns->status_code, get_status_msg(rspns->status_code), (rspns->keep_alive == 1)?"keep-alive":"closed", 
+           get_content_type_str(rspns->content_type),rspns->content_length, rspns->body); 
 
 }
 void send_response_msg(SSL *socket, int client, int status_code, char *body){
@@ -417,15 +421,18 @@ int parse_request(SSL *socket,char *request, REQUEST *reqst ){
             errno = 0;
             char *tmp;
             reqst->content_length = (int)strtol(token+strlen("Content-Length: "), &tmp, 10);
-            if(*tmp != '\0'){
+            //if(strcmp(tmp,"\0") && strcmp(tmp," ")){
+            if(is_str_space(tmp)){
+                printf("tmp: %s\n",tmp);
                 send_response_msg(socket,0, 400, "Not in the currect format");
                 return -1;
             }
             if(errno != 0){
                  
                 send_response_msg(socket,0, 500, "Parsing content length");
+                #ifndef debugHandleMessages
                 log_err_no(errno,"HEADER parsing content length");
-
+                #endif
                 return -1;
             }
         }
@@ -477,10 +484,13 @@ int execute_script(SSL *socket, char* file_path,RESPONSE* rspns) {
     // Open a pipe to the script interpreter
     fp = popen(command, "r");
     if (fp == NULL) {
+        #ifndef debugHandleMessages
         log_err_no(errno,"GET script execution");
+        #endif
         send_response_msg(socket, 0, 500, "Failed to execute script");       
         return -1; // Error opening pipe
     }
+
 
     // Read the output from the pipe
     while (fgets(output_buffer + bytes_read, output_size - bytes_read, fp) != NULL) {
@@ -491,7 +501,9 @@ int execute_script(SSL *socket, char* file_path,RESPONSE* rspns) {
             output_size *= 2;
             output_buffer = realloc(output_buffer, output_size);
             if (output_buffer == NULL) {
+                #ifndef debugHandleMessages
                 log_err_no(errno,"GET script execution");
+                #endif
                 send_response_msg(socket, 0, 500, "Failed to allocate memory");       
                 pclose(fp);
                 return -1; // Error reallocating buffer
@@ -532,7 +544,7 @@ void handle_request(SSL *socket, REQUEST *rqst, RESPONSE *rspns, char *webroot){
             ret = handle_head(socket, rqst, rspns, webroot);
             break;
     }
-     if(!ret)
+     if(ret != -1)
         send_response(socket, rspns);
 }
 
@@ -557,7 +569,9 @@ int handle_post(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot) {
     if (last_slash != NULL) {
         *last_slash = '\0';
         if (mkdir(folder_path, S_IRWXU) == -1 && errno != EEXIST) {
+            #ifndef debugHandleMessages
             log_err_no(errno, "POST mkdir");
+            #endif
             send_response_msg(socket, 0, 500, "Failed to create directory");       
             return -1;
         }
@@ -571,7 +585,9 @@ int handle_post(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot) {
     }
     FILE *fp = fopen(path, "w");
     if (fp == NULL) {
+        #ifndef debugHandleMessages
         log_err_no(errno, "POST fopen");
+        #endif
         send_response_msg(socket, 0, 500, "Failed to save file");       
         return -1;
     }
@@ -583,7 +599,9 @@ int handle_post(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot) {
     rspns->content_length = strlen(msg)+strlen(path)+1;
     rspns->body = (char *)realloc(rspns->body, sizeof(char)*rspns->content_length);
     if(rspns->body == NULL){
+        #ifndef debugHandleMessages
         log_err_no(errno, "POST realloc");
+        #endif
         send_response_msg(socket, 0, 500, "Failed to allocate memory");
         return -1;
     }
@@ -632,7 +650,9 @@ int handle_get(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot){
     if(rspns->body == NULL){
         char buf[100];
         sprintf(buf,"%s realloc",get_method_str(reqst->method));
+        #ifndef debugHandleMessages
         log_err_no(errno, buf);
+        #endif
         send_response_msg(socket, 0, 500, "Failed to allocate memory");
         return -1;
     }
@@ -641,7 +661,9 @@ int handle_get(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot){
     if(byte_read != rspns->content_length){
         char buf[100];
         sprintf(buf,"%s fread: bytes read not equal content length",get_method_str(reqst->method));
+        #ifndef debugHandleMessages
         log_err(buf);
+        #endif
         send_response_msg(socket, 0, 500, "Failed to read file");
         return -1;
     }
@@ -689,7 +711,9 @@ int handle_delete(SSL *socket, REQUEST *rqst, RESPONSE *rspns, char *webroot){
     
     rspns->body = realloc(rspns->body, sizeof(char)*(rspns->content_length));
     if(rspns->body == NULL){
+        #ifndef debugHandleMessages
         log_err_no(errno, "DELETE realloc");
+        #endif
         send_response_msg(socket, 0, 500, "Failed to allocate memory");
         return -1;
     }
@@ -703,7 +727,7 @@ int handle_delete(SSL *socket, REQUEST *rqst, RESPONSE *rspns, char *webroot){
 #ifdef debugHandleMessages
 void print_menu() {
     printf("===== MENU =====\n");
-    printf("1. Test POSR Request\n");
+    printf("1. Test POST Request\n");
     printf("2. Test GET Request\n");
     printf("3. Test GET Request for python or php script\n");
     printf("4. Test HEAD Request\n");
@@ -756,27 +780,27 @@ int main(){
         scanf("%d", &choice);
         switch (choice) {
             case 1:
-                parse_request(post_request,reqst);
-                printf("okay\n");
+                parse_request(NULL,post_request,reqst);
+               printf("okay\n");
                 handle_request(NULL, reqst, rspns, "webroot");
                 break;
             case 2:
-                parse_request(get_request,reqst);
+                parse_request(NULL, get_request,reqst);
                 printf("okay\n");
                 handle_request(NULL, reqst, rspns, "webroot");
                 break;
             case 3:
-                parse_request(get_request_script,reqst);
+                parse_request(NULL, get_request_script,reqst);
                 printf("okay\n");
                 handle_request(NULL, reqst, rspns, "webroot");
                 break;
             case 4:
-                parse_request(head_request,reqst);
+                parse_request(NULL, head_request,reqst);
                 printf("okay\n");
                 handle_request(NULL, reqst, rspns, "webroot");
                 break;
             case 5:
-                parse_request(delete_request,reqst);
+                parse_request(NULL, delete_request,reqst);
                 printf("okay\n");
                 handle_request(NULL, reqst, rspns, "webroot");
                 break;
