@@ -30,13 +30,15 @@ int execute_script(char* file_path,RESPONSE* rspns);
 
 void handle_request(SSL *socket, REQUEST *rqst, RESPONSE *rspns, char *webroot);
 
-void handle_post(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot);
+int handle_post(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot);
 
-void handle_get(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot);
+int handle_get(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot);
 
 int handle_head(SSL *socket, REQUEST *rqst, RESPONSE *rspns, char *webroot);
 
 int handle_delete(SSL *socket, REQUEST *rqst, RESPONSE *rspns, char *webroot);
+
+char * get_method_str(Method method);
 
 int https_request_init(REQUEST** rqst){
     *rqst = (REQUEST *) malloc(sizeof(REQUEST));
@@ -97,6 +99,16 @@ Method get_method_enum(char *buf){
     
     return unknown_method;
 }
+
+char * get_method_str(Method method){
+    if(method == GET) return "GET";
+    else if(method == POST) return "POST";
+    else if(method == DELETE) return "DELETE";
+    else if(method == HEAD) return "HEAD";
+    
+    return "UNKOWN METHOD";
+}
+
 
 ContentType get_content_type_enum(char *buf){
     if(!strncmp("text/html", buf, strlen("text/html"))) return html;
@@ -233,24 +245,24 @@ char* get_file_extension(char* uri) {
 }
 
 void print_request_struct (REQUEST* reqst){
-    printf("Method: %d\n"
+    printf("Method: %s\n"
            "URI: %s\n"
-           "Connection: %d\n"
-           "Content-Type: %s : %d\n"
+           "Connection: %s\n"
+           "Content-Type: %s\n"
            "Content-Length:%d\n"
            "Body:%s\n",
-           reqst->method,reqst->uri,reqst->keep_alive,
-           get_content_type_str(reqst->content_type), reqst->content_type,reqst->content_length,reqst->body);
+           get_method_str(reqst->method),reqst->uri,(reqst->keep_alive == 1)?"keep-alive":"closed",
+           get_content_type_str(reqst->content_type),reqst->content_length,reqst->body);
 }
 
 void print_response_struct (RESPONSE* rspns){
 //    printf("Status code: %d\n"
 //           "Status-Message: %s\n"
-//           "Connection: %d\n"
+//           "Connection: %s\n"
 //           "Content-Type: %s\n"
 //           "Content-Length:%d\n"
 //           "Body:%s\n",
-//           rspns->status_code, get_status_msg(rspns->status_code), rspns->keep_alive, 
+//           rspns->status_code, get_status_msg(rspns->status_code), (rspns->keep_alive == 1)?"keep-alive":"closed", 
 //           get_content_type_str(rspns->content_type),rspns->content_length, rspns->body); 
 
      printf("Status code: %d\n"
@@ -270,7 +282,7 @@ void send_response_msg(SSL *socket, int client, int status_code, char *body){
             "\r\nServer: %s"
             "\r\nContent-Length: %d"
             "\r\nConnection: %s"
-            "\r\nContent-Type: %s\r\n\r\n\0",
+            "\r\nContent-Type: %s\r\n\r\n",
             HTTP_VERSION, status_code, get_status_msg(status_code),SERVER_NAME,
             bodylen,  "closed", 
             get_content_type_str(plain));
@@ -298,15 +310,16 @@ void send_response(SSL *socket, RESPONSE *rspns){
             "\r\nServer: %s"
             "\r\nContent-Length: %d"
             "\r\nConnection: %s"
-            "\r\nContent-Type: %s\r\n\r\n\0",
+            "\r\nContent-Type: %s\r\n\r\n",
             HTTP_VERSION, rspns->status_code, get_status_msg(rspns->status_code),SERVER_NAME,
             rspns->content_length,  (rspns->keep_alive == 1)?"keep-alive":"closed", 
             get_content_type_str(rspns->content_type));
-
+    #ifndef debugHandleMessages
     SSL_write(socket, buf, strlen(buf));
     if(rspns-> body != NULL){
         SSL_write(socket, rspns->body, rspns->content_length);
     }
+    #endif
 
 }
 
@@ -460,6 +473,7 @@ int execute_script(char* file_path,RESPONSE* rspns) {
 void handle_request(SSL *socket, REQUEST *rqst, RESPONSE *rspns, char *webroot){
     printf("-------------------Request struct----------------\n");
     print_request_struct(rqst);
+    rspns->keep_alive=rqst->keep_alive;
      switch(rqst->method){
          case GET:
              handle_get(socket, rqst, rspns, webroot);
@@ -477,7 +491,7 @@ void handle_request(SSL *socket, REQUEST *rqst, RESPONSE *rspns, char *webroot){
      send_response(socket, rspns);
 }
 
-void handle_post(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot) {
+int handle_post(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot) {
     // Extract path from uri
     char* has_slash = strchr(reqst->uri, '/');
     if (has_slash == NULL) {
@@ -485,7 +499,7 @@ void handle_post(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot) {
         rspns->body="Invalid URI";
         rspns->content_length=strlen("Invalid URI");
         rspns->content_type=plain;
-        return;
+        return -1;
     }
     
 
@@ -506,7 +520,7 @@ void handle_post(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot) {
             rspns->content_length=strlen("Failed to create directory");
             rspns->content_type=plain;
             free(folder_path);
-            return;
+            return -1;
         }
     }
     free(folder_path);
@@ -517,7 +531,7 @@ void handle_post(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot) {
         rspns->body="Invalid file extension";
         rspns->content_length=strlen("Invalid file extension");
         rspns->content_type=plain;
-        return;
+        return -1;
     }
     FILE *fp = fopen(path, "w");
     if (fp == NULL) {
@@ -525,20 +539,29 @@ void handle_post(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot) {
         rspns->body="Failed to save file";
         rspns->content_length=strlen("Failed to save file");
         rspns->content_type=plain;
-        return;
+        return -1;
     }
     fwrite(reqst->body, reqst->content_length, 1, fp);
     fclose(fp);
 
     // Send success response
+    char msg[] = "File saved successfully!";
+    rspns->content_length = strlen(msg)+strlen(path);
+    
+    rspns->body = realloc(rspns->body, sizeof(char)*(rspns->content_length));
+    if(rspns->body == NULL){
+        perror("Not enough memory!");
+        return -1;
+    }
+    snprintf(rspns->body, rspns->content_length, "%s%s", path, msg);
     rspns->status_code=201;
     rspns->body="File saved successfully";
-    rspns->content_length=strlen("File saved successfully");
     rspns->content_type=plain;
+    return 0;
 }
 
 
-void handle_get(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot){
+int handle_get(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot){
     // Open the requested file
     char* path = reqst->uri;
     if (strcmp(path, "/") == 0) {
@@ -551,7 +574,7 @@ void handle_get(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot){
     FILE* file = fopen(file_path, "r");
     if (file == NULL) {
         send_response_msg(socket, 0, 404, "Page not found!\n");
-        return;
+        return -1;
     }
     printf("PATH is: %s", file_path);
     char* file_ext = get_file_extension(file_path);
@@ -561,7 +584,7 @@ void handle_get(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot){
 
     if(strcmp(file_ext, ".py") == 0 || strcmp(file_ext, ".php") == 0){
         execute_script(file_path,rspns);
-        return;
+        return -1;
     }
 
     rspns->status_code=200;
@@ -572,6 +595,10 @@ void handle_get(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot){
     fseek(file, 0, SEEK_SET);
   
     rspns->body = realloc(rspns->body, sizeof(char)*rspns->content_length);
+    if(rspns->body == NULL){
+        perror("Not enough memory!");
+        return -1;
+    }
     
     int byte_read = fread(rspns->body, 1, sizeof(char)*rspns->content_length, file);
     if(byte_read != rspns->content_length){
@@ -581,6 +608,7 @@ void handle_get(SSL *socket, REQUEST *reqst,  RESPONSE *rspns, char *webroot){
 
    // Close the file
     fclose(file);
+    return 0;
 }
 
 int handle_head(SSL *socket, REQUEST *rqst, RESPONSE *rspns, char *webroot){
@@ -639,23 +667,24 @@ int handle_delete(SSL *socket, REQUEST *rqst, RESPONSE *rspns, char *webroot){
 }
 
 
-#ifdef debug
+#ifdef debugHandleMessages
+void print_menu() {
+    printf("===== MENU =====\n");
+    printf("1. Test POSR Request\n");
+    printf("2. Test GET Request\n");
+    printf("3. Test GET Request for python or php script\n");
+    printf("4. Test HEAD Request\n");
+    printf("5. Test DELETE Request\n");
+    printf("6. Exit\n");
+}
+
 int main(){
-
-    REQUEST *reqst;
-    RESPONSE *rspns;
-    https_request_init(&reqst);
-
-    https_response_init(&rspns);
-
-    
-
     char post_request[] = "POST /test.txt HTTP/1.1"
                      "\r\nUser-Agent: My_web_browser"
                      "\r\nContent-Length: 28"
                      "\r\nContent-Type: text/plain"
                      "\r\nHost: astarti.cs.ucy.ac.cy:30000"
-                     "\r\nConnection: keep-alive"
+                     "\r\nConnection: close"
                      "\r\n"
                      "\r\nThis is a test for HTTP POST";
 
@@ -682,12 +711,53 @@ int main(){
                       "\r\nConnection: keep-alive"
                       "\r\n";
 
-    parse_request(head_request,reqst);
-    printf("okay\n");
-    handle_request(NULL, reqst, rspns, "webroot");
-
-//    printf("%s\n", get_content_type_str(1));
-       
+    
+    int choice = 0;
+    REQUEST *reqst;
+    RESPONSE *rspns;
+    https_request_init(&reqst);
+    https_response_init(&rspns);
+    do {
+        print_menu();
+        printf("Enter your choice: ");
+        scanf("%d", &choice);
+        switch (choice) {
+            case 1:
+                parse_request(post_request,reqst);
+                printf("okay\n");
+                handle_request(NULL, reqst, rspns, "webroot");
+                break;
+            case 2:
+                parse_request(get_request,reqst);
+                printf("okay\n");
+                handle_request(NULL, reqst, rspns, "webroot");
+                break;
+            case 3:
+                parse_request(get_request_script,reqst);
+                printf("okay\n");
+                handle_request(NULL, reqst, rspns, "webroot");
+                break;
+            case 4:
+                parse_request(head_request,reqst);
+                printf("okay\n");
+                handle_request(NULL, reqst, rspns, "webroot");
+                break;
+            case 5:
+                parse_request(delete_request,reqst);
+                printf("okay\n");
+                handle_request(NULL, reqst, rspns, "webroot");
+                break;
+            case 6:
+                printf("Exiting...\n");
+                break;
+            default:
+                printf("Invalid choice. Please try again.\n");
+        }
+    reqst->content_length=0;
+    reqst->content_type=unknown_con_type;
+    free(reqst->body);
+    reqst->body=NULL;
+    } while (choice != 6);
 }
 #endif
 
